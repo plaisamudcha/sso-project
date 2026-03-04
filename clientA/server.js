@@ -55,6 +55,7 @@ app.get("/profile", async (req, res) => {
   if (!req.session.user) {
     return res.redirect("/");
   }
+  console.log(req.session.user);
 
   res.render("profile", {
     user: req.session.user,
@@ -62,13 +63,15 @@ app.get("/profile", async (req, res) => {
 });
 
 app.get("/logout", async (req, res) => {
-  const refreshToken = req.session.user?.refreshToken;
-
-  if (refreshToken) {
-    await axios.post(`${envConfig.SSO_SERVER}/logout`, {
-      refreshToken,
-    });
-  }
+  await axios.post(
+    `${envConfig.SSO_SERVER}/logout`,
+    {},
+    {
+      headers: {
+        Authorization: `Bearer ${req.session.user.accessToken}`,
+      },
+    },
+  );
 
   req.session.destroy(() => {
     res.redirect("/");
