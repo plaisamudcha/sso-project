@@ -1,5 +1,4 @@
 const { verifyToken } = require("../services/tokenService");
-const Session = require("../model/session");
 
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(" ")[1];
