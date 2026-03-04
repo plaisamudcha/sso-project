@@ -11,6 +11,8 @@ const {
   generateToken,
 } = require("./services/tokenService.js");
 const session = require("express-session");
+const { verifySession } = require("./midlleware/auth.js");
+const authCode = require("./model/authCode.js");
 
 const app = express();
 
@@ -72,17 +74,17 @@ app.post("/login", async (req, res) => {
 
   // mobile จำกัดต่อ 1 เครื่อง
   if (deviceType === "mobile") {
-    const existing = await Session.findOne({
-      deviceId,
-      deviceType: "mobile",
-      isActive: true,
-    });
-
-    if (existing && existing.userId.toString() !== user._id.toString()) {
-      return res.status(400).json({
-        message: "device already used by another account",
-      });
-    }
+    await Session.updateMany(
+      {
+        userId: user._id,
+        deviceId,
+        deviceType: "mobile",
+        isActive: true,
+      },
+      {
+        isActive: false,
+      },
+    );
   }
 
   const code = uuidv4();
@@ -113,12 +115,15 @@ app.post("/token", async (req, res) => {
     return res.status(400).json({ message: "Code expired" });
   }
 
-  const accessToken = generateToken({ id: authCode.userId });
-
   const session = await Session.create({
     userId: authCode.userId,
     deviceId,
     deviceType,
+  });
+
+  const accessToken = generateToken({
+    userId: authCode.userId,
+    sessionId: session._id.toString(),
   });
   const refreshToken = generateRefreshToken(session._id.toString());
   session.refreshToken = refreshToken;
@@ -132,18 +137,14 @@ app.post("/token", async (req, res) => {
   });
 });
 
-app.post("/logout", async (req, res) => {
-  const { refreshToken } = req.body;
-
-  await Session.updateOne({ refreshToken }, { isActive: false });
+app.post("/logout", verifySession, async (req, res) => {
+  await Session.updateOne({ _id: req.user.sessionId }, { isActive: false });
 
   res.json({ message: "logout success" });
 });
 
-app.post("/logout-all", async (req, res) => {
-  const { userId } = req.body;
-
-  await Session.updateMany({ userId }, { isActive: false });
+app.post("/logout-all", verifySession, async (req, res) => {
+  await Session.updateMany({ userId: req.user.userId }, { isActive: false });
 
   res.json({ message: "global logout success" });
 });

@@ -11,4 +11,8 @@ function generateRefreshToken(sessionId) {
   return jwt.sign({ sessionId }, envConfig.REFRESH_SECRET, { expiresIn: "7d" });
 }
 
-module.exports = { generateRefreshToken, generateToken };
+function verifyToken(token) {
+  return jwt.verify(token, envConfig.ACCESS_SECRET);
+}
+
+module.exports = { generateRefreshToken, generateToken, verifyToken };
