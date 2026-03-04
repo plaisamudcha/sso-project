@@ -13,7 +13,7 @@ const {
 } = require("./services/tokenService.js");
 const session = require("express-session");
 const { verifySession } = require("./midlleware/auth.js");
-const authCode = require("./model/authCode.js");
+const redis = require("./config/redis.js");
 
 const app = express();
 
@@ -107,28 +107,44 @@ app.post("/token", async (req, res) => {
   const { code, deviceId, deviceType } = req.body;
 
   const authCode = await AuthCode.findOne({ code });
-
   if (!authCode) {
     return res.status(400).json({ message: "Invalid code" });
   }
-
   if (authCode.expiresAt < new Date()) {
     return res.status(400).json({ message: "Code expired" });
   }
 
-  const session = await Session.create({
-    userId: authCode.userId,
+  const sessionId = uuidv4();
+
+  const sessionData = {
+    userId: authCode.userId.toString(),
     deviceId,
     deviceType,
+    refreshToken: "",
+    isActive: true,
+  };
+
+  // เก็บ session พร้อม TTL 7 วัน
+  await redis.set(`session:${sessionId}`, JSON.stringify(sessionData), {
+    EX: 60 * 60 * 24 * 7,
   });
+
+  // เพิ่ม session เข้า userSessions
+  await redis.sAdd(`userSessions: ${authCode.userId}`, sessionId);
 
   const accessToken = generateToken({
     userId: authCode.userId,
-    sessionId: session._id.toString(),
+    sessionId,
   });
-  const refreshToken = generateRefreshToken(session._id.toString());
-  session.refreshToken = refreshToken;
-  await session.save();
+
+  const refreshToken = generateRefreshToken(sessionId);
+
+  // update refreshtoken ใน redis
+  sessionData.refreshToken = refreshToken;
+
+  await redis.set(`session:${sessionId}`, JSON.stringify(sessionData), {
+    EX: 60 * 60 * 24 * 7,
+  });
 
   await AuthCode.deleteOne({ code });
 

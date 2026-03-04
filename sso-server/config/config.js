@@ -9,6 +9,7 @@ const envConfig = {
   SALT_ROUNDS: Number(process.env.SALT_ROUNDS),
   PORT: process.env.PORT,
   SSO_SECRET: process.env.SSO_SECRET,
+  REDIS_URL: process.env.REDIS_URL,
 };
 
 module.exports = { envConfig };
