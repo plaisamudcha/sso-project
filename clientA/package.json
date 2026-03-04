@@ -11,10 +11,12 @@
   "license": "ISC",
   "dependencies": {
     "axios": "^1.13.6",
+    "connect-redis": "^9.0.0",
     "dotenv": "^17.3.1",
     "ejs": "^4.0.1",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
+    "redis": "^5.11.0",
     "uuid": "^13.0.0"
   }
 }

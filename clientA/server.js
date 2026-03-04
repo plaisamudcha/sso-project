@@ -2,17 +2,26 @@ const express = require("express");
 const { createApiClient } = require("./services/apiClient");
 const axios = require("axios");
 const session = require("express-session");
+const RedisStore = require("connect-redis").default;
+const { createClient } = require("redis");
 const { envConfig } = require("./config");
 const { parseJwt } = require("./helper");
 const { v4: uuidv4 } = require("uuid");
 
 const app = express();
+const redisClient = createClient({
+  url: envConfig.REDIS_URL,
+});
+
+redisClient.connect().catch(console.error);
 
 app.use(
   session({
+    store: new RedisStore({ client: redisClient }),
     secret: envConfig.CLIENTA_SECRET,
     resave: false,
     saveUninitialized: true,
+    cookie: { secure: false },
   }),
 );
 app.use((req, res, next) => {
