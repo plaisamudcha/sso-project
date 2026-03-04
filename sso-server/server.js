@@ -74,7 +74,7 @@ app.post("/login", async (req, res) => {
 
   // mobile จำกัดต่อ 1 เครื่อง
   if (deviceType === "mobile") {
-    const sessionIds = await redis.sMembers(`userSessions: ${user._id}`);
+    const sessionIds = await redis.sMembers(`userSessions:${user._id}`);
 
     for (const id of sessionIds) {
       const sessionRaw = await redis.get(`session:${id}`);
