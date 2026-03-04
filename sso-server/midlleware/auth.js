@@ -23,13 +23,17 @@ async function verifySession(req, res, next) {
     }
 
     const token = authHeader.split(" ")[1];
-
     const payload = verifyToken(token);
 
-    const session = await Session.findById(payload.sessionId);
+    const sessionRaw = await redis.get(`session:${payload.sessionId}`);
+    if (!sessionRaw) {
+      return res.status(401).json({ message: "Session not found" });
+    }
 
-    if (!session || !session.isActive) {
-      return res.status(401).json({ message: "Session Invalid" });
+    const session = JSON.parse(sessionRaw);
+
+    if (!session.isActive) {
+      return res.status(401).json({ message: "Session inactive" });
     }
 
     req.user = payload;
