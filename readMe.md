@@ -1,5 +1,7 @@
 # Flow SSO project
 
+[FLOW-DIAGRAM](./sso-flow.png)
+
 ## ภาพรวม Architecture (2 ระบบ)
 
 #### 1️⃣ SSO Server (Auth Center)
