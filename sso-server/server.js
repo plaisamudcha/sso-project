@@ -3,7 +3,6 @@ const bcrypt = require("bcryptjs");
 const { envConfig } = require("./config/config.js");
 const { connectDB } = require("./config/db.js");
 const User = require("./model/user.js");
-const Session = require("./model/session.js");
 const AuthCode = require("./model/authCode.js");
 const { v4: uuidv4 } = require("uuid");
 const {
@@ -75,17 +74,19 @@ app.post("/login", async (req, res) => {
 
   // mobile จำกัดต่อ 1 เครื่อง
   if (deviceType === "mobile") {
-    await Session.updateMany(
-      {
-        userId: user._id,
-        deviceId,
-        deviceType: "mobile",
-        isActive: true,
-      },
-      {
-        isActive: false,
-      },
-    );
+    const sessionIds = await redis.sMembers(`userSessions: ${user._id}`);
+
+    for (const id of sessionIds) {
+      const sessionRaw = await redis.get(`session:${id}`);
+      if (!sessionRaw) continue;
+
+      const session = JSON.parse(sessionRaw);
+
+      if (session.deviceType === "mobile") {
+        await redis.del(`session: ${id}`);
+        await redis.sRem(`userSessions: ${user._id}`, id);
+      }
+    }
   }
 
   const code = uuidv4();
@@ -157,35 +158,32 @@ app.post("/token", async (req, res) => {
 app.post("/refresh", async (req, res) => {
   try {
     const { refreshToken } = req.body;
-
-    if (!refreshToken) {
-      return res.status(400).json({ message: "No refresh token " });
-    }
-
-    // verify refresh token
     const payload = verifyRefreshToken(refreshToken);
 
-    // หา session
-    const session = await Session.findById(payload.sessionId);
-
-    if (!session || !session.isActive) {
+    const sessionRaw = await redis.get(`session:${payload.sessionId}`);
+    if (!sessionRaw) {
       return res.status(401).json({ message: "Invalid session" });
     }
 
-    // check session ว่าตรงกับ DB ที่เก็บไหม
+    const session = JSON.parse(sessionRaw);
+
     if (session.refreshToken !== refreshToken) {
       return res.status(401).json({ message: "Token mismatch" });
     }
 
     // rotate refresh token
-    const newRefreshToken = generateRefreshToken(session._id.toString());
-    session.refreshToken = newRefreshToken;
-    await session.save();
+    const newRefreshToken = generateRefreshToken(payload.sessionId);
 
     // สร้าง access token ใหม่
     const newAccessToken = generateToken({
       userId: session.userId,
-      sessionId: session._id.toString(),
+      sessionId: payload.sessionId,
+    });
+
+    session.refreshToken = newRefreshToken;
+
+    await redis.set(`session:${payload.sessionId}`, JSON.stringify(session), {
+      EX: 60 * 60 * 24 * 7,
     });
 
     res.json({
@@ -198,13 +196,19 @@ app.post("/refresh", async (req, res) => {
 });
 
 app.post("/logout", verifySession, async (req, res) => {
-  await Session.updateOne({ _id: req.user.sessionId }, { isActive: false });
+  await redis.del(`session: ${req.user.sessionId}`);
 
   res.json({ message: "logout success" });
 });
 
 app.post("/logout-all", verifySession, async (req, res) => {
-  await Session.updateMany({ userId: req.user.userId }, { isActive: false });
+  const sessionIds = await redis.sMembers(`userSessions: ${req.user.userId}`);
+
+  for (const id of sessionIds) {
+    await redis.del(`session:${id}`);
+  }
+
+  await redis.del(`userSession: ${req.user.userId}`);
 
   res.json({ message: "global logout success" });
 });
