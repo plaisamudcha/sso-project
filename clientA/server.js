@@ -20,7 +20,7 @@ app.use(
     store: new RedisStore({ client: redisClient }),
     secret: envConfig.CLIENTA_SECRET,
     resave: false,
-    saveUninitialized: true,
+    saveUninitialized: false,
     cookie: { secure: false },
   }),
 );

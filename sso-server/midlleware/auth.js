@@ -1,4 +1,5 @@
 const { verifyToken } = require("../services/tokenService");
+const redis = require("../config/redis");
 
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(" ")[1];
@@ -27,12 +28,6 @@ async function verifySession(req, res, next) {
     const sessionRaw = await redis.get(`session:${payload.sessionId}`);
     if (!sessionRaw) {
       return res.status(401).json({ message: "Session not found" });
-    }
-
-    const session = JSON.parse(sessionRaw);
-
-    if (!session.isActive) {
-      return res.status(401).json({ message: "Session inactive" });
     }
 
     req.user = payload;

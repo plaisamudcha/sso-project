@@ -108,6 +108,12 @@ app.post("/token", async (req, res) => {
   const { code, deviceId, deviceType } = req.body;
 
   const authCode = await AuthCode.findOne({ code });
+  if (
+    authCode.clientId !== client_id ||
+    authCode.redirectUri !== redirect_uri
+  ) {
+    return res.status(401).json({ message: "Invalid Client" });
+  }
   if (!authCode) {
     return res.status(400).json({ message: "Invalid code" });
   }
@@ -198,6 +204,8 @@ app.post("/refresh", async (req, res) => {
 app.post("/logout", verifySession, async (req, res) => {
   await redis.del(`session:${req.user.sessionId}`);
 
+  await redis.sRem(`userSessions:${req.user.userId}`, req.user.sessionId);
+
   res.json({ message: "logout success" });
 });
 
@@ -208,7 +216,7 @@ app.post("/logout-all", verifySession, async (req, res) => {
     await redis.del(`session:${id}`);
   }
 
-  await redis.del(`userSession:${req.user.userId}`);
+  await redis.del(`userSessions:${req.user.userId}`);
 
   res.json({ message: "global logout success" });
 });
