@@ -1,4 +1,5 @@
 const express = require("express");
+const { createApiClient } = require("./services/apiClient");
 const axios = require("axios");
 const session = require("express-session");
 const { envConfig } = require("./config");
@@ -69,15 +70,9 @@ app.get("/profile", async (req, res) => {
 });
 
 app.get("/logout", async (req, res) => {
-  await axios.post(
-    `${envConfig.SSO_SERVER}/logout`,
-    {},
-    {
-      headers: {
-        Authorization: `Bearer ${req.session.user.accessToken}`,
-      },
-    },
-  );
+  const api = createApiClient(req);
+
+  await api.post("/logout");
 
   req.session.destroy(() => {
     res.redirect("/");
