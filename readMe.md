@@ -1,6 +1,6 @@
 # Flow SSO project
 
-[FLOW-DIAGRAM](./sso-flow.png)
+![FLOW-DIAGRAM](./sso-flow.png)
 
 ## ภาพรวม Architecture (2 ระบบ)
 
