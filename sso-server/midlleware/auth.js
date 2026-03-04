@@ -18,7 +18,7 @@ async function verifySession(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
 
-    if (!authHeader || !authHeader.startWith("Bearer ")) {
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return res.status(401).json({ message: "No token" });
     }
 
@@ -26,13 +26,13 @@ async function verifySession(req, res, next) {
 
     const payload = verifyToken(token);
 
-    const session = Session.findById(payload.sessionId);
+    const session = await Session.findById(payload.sessionId);
 
     if (!session || !session.isActive) {
       return res.status(401).json({ message: "Session Invalid" });
     }
 
-    req.user = paylaod;
+    req.user = payload;
     next();
   } catch (err) {
     return res.status(401).json({ message: "Unauthorized" });

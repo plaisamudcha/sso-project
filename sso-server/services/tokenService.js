@@ -1,10 +1,8 @@
 const { envConfig } = require("../config/config");
 const jwt = require("jsonwebtoken");
 
-function generateToken(user) {
-  return jwt.sign({ userId: user.id }, envConfig.ACCESS_SECRET, {
-    expiresIn: "15m",
-  });
+function generateToken(payload) {
+  return jwt.sign(payload, envConfig.ACCESS_SECRET, { expiresIn: "15m" });
 }
 
 function generateRefreshToken(sessionId) {
@@ -15,4 +13,13 @@ function verifyToken(token) {
   return jwt.verify(token, envConfig.ACCESS_SECRET);
 }
 
-module.exports = { generateRefreshToken, generateToken, verifyToken };
+function verifyRefreshToken(token) {
+  return jwt.verify(token, envConfig.REFRESH_SECRET);
+}
+
+module.exports = {
+  generateRefreshToken,
+  generateToken,
+  verifyToken,
+  verifyRefreshToken,
+};
