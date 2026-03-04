@@ -3,6 +3,7 @@ const axios = require("axios");
 const session = require("express-session");
 const { envConfig } = require("./config");
 const { parseJwt } = require("./helper");
+const { v4: uuidv4 } = require("uuid");
 
 const app = express();
 
@@ -13,6 +14,12 @@ app.use(
     saveUninitialized: true,
   }),
 );
+app.use((req, res, next) => {
+  if (!req.session.browserId) {
+    req.session.browserId = uuidv4();
+  }
+  next();
+});
 
 app.set("view engine", "ejs");
 
@@ -33,7 +40,7 @@ app.get("/callback", async (req, res) => {
   try {
     const tokenResponse = await axios.post(`${envConfig.SSO_SERVER}/token`, {
       code,
-      deviceId: "browser-001",
+      deviceId: req.session.browserId,
       deviceType: "browser",
     });
 
