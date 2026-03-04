@@ -49,7 +49,7 @@ app.get("/callback", async (req, res) => {
     req.session.user = {
       accessToken,
       refreshToken,
-      userId: parseJwt(accessToken).id,
+      userId: parseJwt(accessToken).userId,
     };
 
     res.redirect("/");
