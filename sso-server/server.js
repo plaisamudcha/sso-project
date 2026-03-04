@@ -105,7 +105,7 @@ app.post("/login", async (req, res) => {
 });
 
 app.post("/token", async (req, res) => {
-  const { code, deviceId, deviceType } = req.body;
+  const { code, deviceId, deviceType, client_id, redirect_uri } = req.body;
 
   const authCode = await AuthCode.findOne({ code });
   if (
@@ -122,6 +122,8 @@ app.post("/token", async (req, res) => {
   }
 
   const sessionId = uuidv4();
+
+  const refreshToken = generateRefreshToken(sessionId);
 
   const sessionData = {
     userId: authCode.userId.toString(),
@@ -144,14 +146,8 @@ app.post("/token", async (req, res) => {
     sessionId,
   });
 
-  const refreshToken = generateRefreshToken(sessionId);
-
   // update refreshtoken ใน redis
   sessionData.refreshToken = refreshToken;
-
-  await redis.set(`session:${sessionId}`, JSON.stringify(sessionData), {
-    EX: 60 * 60 * 24 * 7,
-  });
 
   await AuthCode.deleteOne({ code });
 

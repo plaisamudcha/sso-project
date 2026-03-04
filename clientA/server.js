@@ -50,6 +50,8 @@ app.get("/callback", async (req, res) => {
   try {
     const tokenResponse = await axios.post(`${envConfig.SSO_SERVER}/token`, {
       code,
+      client_id: envConfig.CLIENT_ID,
+      redirect_uri: envConfig.REDIRECT_URI,
       deviceId: req.session.browserId,
       deviceType: "browser",
     });
