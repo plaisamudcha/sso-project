@@ -83,8 +83,8 @@ app.post("/login", async (req, res) => {
       const session = JSON.parse(sessionRaw);
 
       if (session.deviceType === "mobile") {
-        await redis.del(`session: ${id}`);
-        await redis.sRem(`userSessions: ${user._id}`, id);
+        await redis.del(`session:${id}`);
+        await redis.sRem(`userSessions:${user._id}`, id);
       }
     }
   }
@@ -131,7 +131,7 @@ app.post("/token", async (req, res) => {
   });
 
   // เพิ่ม session เข้า userSessions
-  await redis.sAdd(`userSessions: ${authCode.userId}`, sessionId);
+  await redis.sAdd(`userSessions:${authCode.userId}`, sessionId);
 
   const accessToken = generateToken({
     userId: authCode.userId,
@@ -196,19 +196,19 @@ app.post("/refresh", async (req, res) => {
 });
 
 app.post("/logout", verifySession, async (req, res) => {
-  await redis.del(`session: ${req.user.sessionId}`);
+  await redis.del(`session:${req.user.sessionId}`);
 
   res.json({ message: "logout success" });
 });
 
 app.post("/logout-all", verifySession, async (req, res) => {
-  const sessionIds = await redis.sMembers(`userSessions: ${req.user.userId}`);
+  const sessionIds = await redis.sMembers(`userSessions:${req.user.userId}`);
 
   for (const id of sessionIds) {
     await redis.del(`session:${id}`);
   }
 
-  await redis.del(`userSession: ${req.user.userId}`);
+  await redis.del(`userSession:${req.user.userId}`);
 
   res.json({ message: "global logout success" });
 });
