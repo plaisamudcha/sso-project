@@ -62,7 +62,6 @@ app.get("/profile", async (req, res) => {
   if (!req.session.user) {
     return res.redirect("/");
   }
-  console.log(req.session.user);
 
   res.render("profile", {
     user: req.session.user,

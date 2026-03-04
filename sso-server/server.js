@@ -9,6 +9,7 @@ const { v4: uuidv4 } = require("uuid");
 const {
   generateRefreshToken,
   generateToken,
+  verifyRefreshToken,
 } = require("./services/tokenService.js");
 const session = require("express-session");
 const { verifySession } = require("./midlleware/auth.js");
@@ -135,6 +136,49 @@ app.post("/token", async (req, res) => {
     accessToken,
     refreshToken,
   });
+});
+
+app.post("/refresh", async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return res.status(400).json({ message: "No refresh token " });
+    }
+
+    // verify refresh token
+    const payload = verifyRefreshToken(refreshToken);
+
+    // หา session
+    const session = await Session.findById(payload.sessionId);
+
+    if (!session || !session.isActive) {
+      return res.status(401).json({ message: "Invalid session" });
+    }
+
+    // check session ว่าตรงกับ DB ที่เก็บไหม
+    if (session.refreshToken !== refreshToken) {
+      return res.status(401).json({ message: "Token mismatch" });
+    }
+
+    // rotate refresh token
+    const newRefreshToken = generateRefreshToken(session._id.toString());
+    session.refreshToken = newRefreshToken;
+    await session.save();
+
+    // สร้าง access token ใหม่
+    const newAccessToken = generateToken({
+      userId: session.userId,
+      sessionId: session._id.toString(),
+    });
+
+    res.json({
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+    });
+  } catch (err) {
+    return res.status(401).json({ message: "Invalid refresh token" });
+  }
 });
 
 app.post("/logout", verifySession, async (req, res) => {
