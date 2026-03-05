@@ -17,10 +17,24 @@ const redis = require("./config/redis.js");
 const { RedisStore } = require("connect-redis");
 const redisClient = require("./config/redis.js");
 const crypto = require("crypto");
+const cors = require("cors");
+const {
+  loginLimiter,
+  tokenLimiter,
+  refreshLimiter,
+} = require("./midlleware/rateLimit.js");
 
 const app = express();
 
 app.use(express.json());
+app.use(
+  cors({
+    origin: ["http://localhost:5000", "http://localhost:5001"],
+    methods: ["GET", "POST"],
+    credentials: true,
+  }),
+);
+
 app.use(
   session({
     store: new RedisStore({ client: redisClient }),
@@ -116,7 +130,7 @@ app.get("/authorize", async (req, res) => {
   });
 });
 
-app.post("/login", async (req, res) => {
+app.post("/login", loginLimiter, async (req, res) => {
   const { email, password, deviceType } = req.body;
 
   if (!req.session.oauth) {
@@ -169,7 +183,7 @@ app.post("/login", async (req, res) => {
   res.redirect(`${redirect_uri}?code=${code}`);
 });
 
-app.post("/token", async (req, res) => {
+app.post("/token", tokenLimiter, async (req, res) => {
   const { code, deviceId, deviceType, client_id, redirect_uri } = req.body;
 
   if (!code || !client_id || !redirect_uri) {
@@ -228,7 +242,7 @@ app.post("/token", async (req, res) => {
   });
 });
 
-app.post("/refresh", async (req, res) => {
+app.post("/refresh", refreshLimiter, async (req, res) => {
   try {
     const { refreshToken } = req.body;
     const payload = verifyRefreshToken(refreshToken);
