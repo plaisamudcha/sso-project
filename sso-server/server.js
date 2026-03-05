@@ -288,6 +288,7 @@ app.post("/refresh", refreshLimiter, async (req, res) => {
 });
 
 app.post("/logout", verifySession, async (req, res) => {
+  console.log("inside this function");
   await redis.del(`session:${req.user.sessionId}`);
 
   await redis.sRem(`userSessions:${req.user.userId}`, req.user.sessionId);
