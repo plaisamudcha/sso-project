@@ -73,6 +73,13 @@ app.post("/register-oauth-client", async (req, res) => {
   });
 });
 
+app.get("/oauth-client", async (req, res) => {
+  console.log("this route");
+  const data = await OAuthClient.findOne();
+
+  return res.status(200).json(data);
+});
+
 app.get("/authorize", async (req, res) => {
   const { client_id, redirect_uri } = req.query;
 
