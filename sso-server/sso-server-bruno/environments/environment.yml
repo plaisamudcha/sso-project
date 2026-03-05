@@ -1,0 +1,6 @@
+name: environment
+variables:
+  - secret: true
+    name: BASE_URL
+  - secret: true
+    name: token

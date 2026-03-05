@@ -1,0 +1,22 @@
+info:
+  name: Register oauth client
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: "{{BASE_URL}}/register-oauth-client"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "clientA",
+        "redirectUris": "http://localhost:5000/callback"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
