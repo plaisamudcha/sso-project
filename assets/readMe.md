@@ -2,19 +2,15 @@
 
 ## ✅ FINAL CLEAN SEQUENCE DIAGRAM
 
-![FLOW-DIAGRAM](./assets/sso-flow.png)
+![FLOW-DIAGRAM](./sso-flow.png)
 
 ## 🔄 REFRESH FLOW
 
-![REFRESH-FLOW](./assets/token-flow.png)
+![REFRESH-FLOW](./token-flow.png)
 
 ## 🚪 LOGOUT FLOW
 
-![LOGOUT-FLOW](./assets/logout-flow.png)
-
-## 🌍 GLOBAL LOGOUT FLOW
-
-![GLOBAL-LOGOUT-FLOW](./assets/global-logout-flow.png)
+![LOGOUT-FLOW](./logout-flow.png)
 
 ## Redis Final Data Structure
 
