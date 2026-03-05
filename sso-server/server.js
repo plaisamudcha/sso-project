@@ -16,6 +16,7 @@ const { verifySession } = require("./midlleware/auth.js");
 const redis = require("./config/redis.js");
 const { RedisStore } = require("connect-redis");
 const redisClient = require("./config/redis.js");
+const crypto = require("crypto");
 
 const app = express();
 
@@ -47,6 +48,29 @@ app.post("/register", async (req, res) => {
   });
 
   res.json({ message: "Register successfully" });
+});
+
+app.post("/register-oauth-client", async (req, res) => {
+  const { name, redirectUris } = req.body;
+
+  if (!name || !redirectUris) {
+    return res.status(400).json({ message: "Invalid request" });
+  }
+
+  const clientId = crypto.randomUUID();
+  const clientSecret = crypto.randomBytes(32).toString("hex");
+
+  const client = await OAuthClient.create({
+    name,
+    clientId,
+    clientSecret,
+    redirectUris,
+  });
+
+  res.json({
+    client_id: client.clientId,
+    client_secret: client.clientSecret,
+  });
 });
 
 app.get("/authorize", async (req, res) => {
