@@ -57,6 +57,10 @@ app.post("/register-oauth-client", async (req, res) => {
     return res.status(400).json({ message: "Invalid request" });
   }
 
+  if (!Array.isArray(redirectUris)) {
+    return res.status(400).json({ message: "redirectUris must be array" });
+  }
+
   const clientId = crypto.randomUUID();
   const clientSecret = crypto.randomBytes(32).toString("hex");
 
@@ -116,7 +120,7 @@ app.post("/login", async (req, res) => {
 
   const client = await OAuthClient.findOne({ clientId: client_id });
 
-  if (!client || client.redirectUris !== redirect_uri) {
+  if (!client || client.redirectUris.includes(redirect_uri)) {
     return res.status(401).send("Invalid OAuth client");
   }
 
@@ -162,14 +166,14 @@ app.post("/token", async (req, res) => {
   const { code, deviceId, deviceType, client_id, redirect_uri } = req.body;
 
   const authCode = await AuthCode.findOne({ code });
+  if (!authCode) {
+    return res.status(400).json({ message: "Invalid code" });
+  }
   if (
     authCode.clientId !== client_id ||
     authCode.redirectUri !== redirect_uri
   ) {
     return res.status(401).json({ message: "Invalid Client" });
-  }
-  if (!authCode) {
-    return res.status(400).json({ message: "Invalid code" });
   }
   if (authCode.expiresAt < new Date()) {
     return res.status(400).json({ message: "Code expired" });
@@ -202,6 +206,10 @@ app.post("/token", async (req, res) => {
 
   // update refreshtoken ใน redis
   sessionData.refreshToken = refreshToken;
+
+  await redis.set(`session:${sessionId}`, JSON.stringify(sessionData), {
+    EX: 60 * 60 * 24 * 7,
+  });
 
   await AuthCode.deleteOne({ code });
 
