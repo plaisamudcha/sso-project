@@ -106,7 +106,7 @@ app.get("/authorize", async (req, res) => {
 });
 
 app.post("/login", async (req, res) => {
-  const { email, password, deviceId, deviceType } = req.body;
+  const { email, password, deviceType } = req.body;
 
   if (!req.session.oauth) {
     return res.status(400).send("Unauthorized flow");
@@ -114,11 +114,17 @@ app.post("/login", async (req, res) => {
 
   const { client_id, redirect_uri } = req.session.oauth;
 
+  const client = await OAuthClient.findOne({ clientId: client_id });
+
+  if (!client || client.redirectUris !== redirect_uri) {
+    return res.status(401).send("Invalid OAuth client");
+  }
+
   const user = await User.findOne({ email });
-  if (!user) return res.status(400).json({ message: "user not found" });
+  if (!user) return res.status(400).json({ message: "Invalid credentials" });
 
   const valid = await bcrypt.compare(password, user.password);
-  if (!valid) return res.status(400).json({ message: "user not found" });
+  if (!valid) return res.status(400).json({ message: "Invalid credentials" });
 
   // mobile จำกัดต่อ 1 เครื่อง
   if (deviceType === "mobile") {

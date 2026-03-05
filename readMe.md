@@ -27,9 +27,43 @@ refreshToken
 }
 
 userSession:<userId> (SET)
+Set [
+sessionId1
+sessionId2
+sessionId3
+]
 
-- sessionId1
-- sessionId2
+oauthSession:{sessionId}
+{
+client_id
+redirect_uri
+}
+
+## MongoDB
+
+User
+{
+id,
+email,
+password
+}
+
+AuthCode
+{
+code,
+userId,
+clientId,
+redirectUri,
+expiresAt
+}
+
+oAuthClients
+{
+name,
+clientId,
+clientSecret,
+redeirectUris[]
+}
 
 ## ภาพรวม Architecture (2 ระบบ)
 
@@ -52,76 +86,83 @@ userSession:<userId> (SET)
 
 ## Flow Step
 
+#### STEP 0 — Developer Register OAuth Client
+
+• Developer เรียก /register-oauth-client
+• sso_server สร้าง { client_id, client_secret, redirect_uris } เก็บใน OAuthClients
+• client นำ client_id กับ client_secret ไปใช้
+
 #### 🔐 STEP 1 — User กด Login ที่ ClientA
 
 • User เข้า GET /login
-• Browser ถูก redirect ไป sso_server/authorize?
+• Browser ถูก redirect ไป /authorize?client_id=xxx&redirect_uri=xxx
 • query ที่ส่งไปมี client_id และ redirect_uri
 
 #### 🔑 STEP 2 — เข้า SSO /authorize
 
-• นำ query ที่มาได้เก็บไว้ใน session
-• แสดงหน้า login
+• ตรวจว่า client_id และ redirect_uri ถูกต้องหรือไม่ (ตรวจจาก OAuthClients)
+• เก็บข้อมูล req.session.oauth = { client_id, redirect_uri } ใน redis
+• แสดงหน้า login page
 
 #### 👤 STEP 3 — User login ที่ SSO
 
-• ตรวจสอบ user + password กับ database
-• check กับ redis ว่าถ้าเป็น mobile แล้วมี mobile อื่น login อยู่ไหม
-• สร้าง Authorization code
-• บันทึก Authorization code ลง AuthCode database อายุ 5 นาที
-• redirect กลับ ClientA โดยแถม Authorization Code กลับไปทาง params
+• POST /login ส่ง body = { email, password, deviceType }
+• เชค email, password ใน Users
+• เชคถ้า deviceType = 'mobile' ไปเชค redis userSessions:{userId} ถ้ามี mobile session จะลบอันเก่า
+• gen code ผ่าน uuid() บันทึกลงใน Authorization Code
+• redirect กลับ /redirect_uri?code=xxxx
 
 #### 🔁 STEP 4 — ClientA รับ code
 
 • รับ Authorization code มาทาง /callback?code=xxxx
-• นำ code ที่ได้มาแนบ id ของ device ส่งผ่าน body ไปที่ sso_server/token โดย body คือ { code, client_id, redirect_uri, deviceId, deviceType }
-• redirect ไปที่ sso_server/token
+• client เรียก /token ส่ง body = {code, client_id, redirect_uri, deviceId, deviceType }
 
 #### 🎟 STEP 5 — SSO /token
 
-• นำ body ที่ได้มาจาก ClentA ตรวจ code เชคกับ database
+• ตรวจ code จาก Authorization code ใน DB
 • เชค client_id และ redirect_uri ว่ามีส่งมาหรือไม่
 • สร้าง sessionId ผ่าน uuidv4()
 • sign refreshToken
-• สร้าง session ใน redis ชื่อ session:{sessionId}
-• เก็บ session user ใน set ชื่อ userSession:{userId}
-• ตอนนี้ redis จะมี
-session:abc123 → { userId, deviceId, refreshToken }
-userSessions:userid → Set(abc123)
-• สร้าง accessToken
-• ลบ Authorization code ออกจาก database
-• ส่ง access+refresh กลับไปทาง ClientA
+• สร้าง session ใน redis ชื่อ session:{sessionId} = { userId, deviceId, deviceType, refreshToken, isActive } TTL 7 วัน
+• เพิ่ม session เข้า redis ชื่อ userSession:{userId} = Set(sessionId)
+• สร้าง accessToken จาก payload = { userId, sessionId }
+• ลบ Authorization code ออกจาก DB
+• ส่ง token กลับ client = { accessToken, refreshToken }
 
 #### 🧾 STEP 6 — ClientA เก็บ token ใน session
 
-• req.session.user = { accessToken, refreshToken, userId }
+• req.session.user = { accessToken, refreshToken }
 
 #### 🔄 STEP 7 — Client เรียก API ที่ต้องใช้ auth
 
-• ก่อนยิง request check refreshToken และ AccessToken ผ่าน headers โดยใช้ flow refreshToken
+• client ส่ง Authorization: Bearer accessToken ไปยัง API
 
 #### 🛡 STEP 8 — SSO verifySession
 
-• เชคถ้าไม่มี token => 401, token หมดอายุ => 401, session ไม่มีใน redis => 401
+• decode accessToken ได้ { userId, sessionId } ตรวจ redis ชื่อ session:{sessionId}
+• ถ้าไม่มี session return 401 Unauthorized
 
 #### 🔄 STEP 9 — Access token หมดอายุ
 
-• หมดอายุขึ้น 401 interceptor ส่งไป post sso_server/refresh ตอนยิง
+• หมดอายุขึ้น 401 interceptor ส่งไป POST /refresh
 
 #### 🔁 STEP 10 — SSO /refresh
 
-• นำ refreshToken ที่ได้มาจาก ClientA มา verify
-• เชค session ใน Redis และเชค refreshToken ที่ได้มาว่าตรงกับ refreshToken ใน redis ไหม
-• สร้าง refresh token ใหม่รวมถึง update session ใน redis ใหม่
-• สร้าง accessToken แล้วส่งกลับ client
+• รับ refreshToken มา decode ได้ sessionId ตรวจกับ redis ชื่อ session:{sessionId} ว่าตรงกันไหม
+• สร้าง newRefreshToken
+• อัพเดต redis session.refreshToken = newRefreshToken
+• สร้าง newAccessToken
+• ส่งกลับ client = { accessToken, refreshToken }
 
 #### 🚪 STEP 11 — Logout เฉพาะเครื่อง
 
-• ส่งไป post sso_server/logout
+• ส่งไป POST /logout
 • ลบ session:{sessionId}
 • userSession:{userId},sessionId ลบแค่ sessionId นั้นใน set user
 
-#### 🌍 STEP 12 — Logout All
+#### 🌍 STEP 12 — Logout All Devices
 
-• ลบทุก session
-• ลบ set ทั้งก้อน
+• POST /logout-all
+• SMEMBERS userSession:{userId}
+• DEL session:{sessionId}
+• DEL userSessions:{userId}
