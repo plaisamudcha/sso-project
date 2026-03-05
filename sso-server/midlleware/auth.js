@@ -25,6 +25,11 @@ async function verifySession(req, res, next) {
     const token = authHeader.split(" ")[1];
     const payload = verifyToken(token);
 
+    const userRaw = await redis.get(`userSessions:${payload.userId}`);
+    if (!userRaw) {
+      return res.status(401).json({ message: "User not found" });
+    }
+
     const sessionRaw = await redis.get(`session:${payload.sessionId}`);
     if (!sessionRaw) {
       return res.status(401).json({ message: "Session not found" });
