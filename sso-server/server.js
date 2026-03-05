@@ -13,15 +13,21 @@ const {
 const session = require("express-session");
 const { verifySession } = require("./midlleware/auth.js");
 const redis = require("./config/redis.js");
+const { RedisStore } = require("connect-redis");
+const redisClient = require("./config/redis.js");
 
 const app = express();
 
 app.use(express.json());
 app.use(
   session({
+    store: new RedisStore({ client: redisClient }),
     secret: envConfig.SSO_SECRET,
     resave: false,
-    saveUninitialized: false,
+    cookie: {
+      secure: false,
+      httpOnly: true,
+    },
   }),
 );
 app.use(express.urlencoded({ extended: true }));
