@@ -1,12 +1,15 @@
+// Libraries
 const express = require("express");
-const { createApiClient } = require("./services/apiClient");
 const axios = require("axios");
 const session = require("express-session");
 const { RedisStore } = require("connect-redis");
 const { createClient } = require("redis");
+const { v4: uuidv4 } = require("uuid");
+
+// Utilities
 const { envConfig } = require("./config");
 const { parseJwt } = require("./helper");
-const { v4: uuidv4 } = require("uuid");
+const { createApiClient } = require("./services/apiClient");
 
 const app = express();
 const redisClient = createClient({
@@ -58,11 +61,18 @@ app.get("/callback", async (req, res) => {
 
     const { accessToken, refreshToken } = tokenResponse.data;
 
-    req.session.user = {
-      accessToken,
-      refreshToken,
-      userId: parseJwt(accessToken).userId,
-    };
+    // เก็บ refreshToken ใน redis
+    await redisClient.set(`refresh:${req.session.browserId}`, refreshToken, {
+      EX: 60 * 60 * 24 * 30,
+    });
+
+    // เก็บ accessToken ใน cookie
+    res.cookie("accessToken", accessToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      maxAge: 15 * 60 * 1000,
+    });
 
     res.redirect("/");
   } catch (err) {

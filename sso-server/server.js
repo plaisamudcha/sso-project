@@ -1,23 +1,28 @@
+// Libraries
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const { envConfig } = require("./config/config.js");
 const { connectDB } = require("./config/db.js");
+const { v4: uuidv4 } = require("uuid");
+const session = require("express-session");
+const cors = require("cors");
+const crypto = require("crypto");
+
+// Models
 const User = require("./model/user.js");
 const AuthCode = require("./model/authCode.js");
 const OAuthClient = require("./model/oAuthClient.js");
-const { v4: uuidv4 } = require("uuid");
+
+// Utilities
 const {
   generateRefreshToken,
   generateToken,
   verifyRefreshToken,
 } = require("./services/tokenService.js");
-const session = require("express-session");
 const { verifySession } = require("./midlleware/auth.js");
 const redis = require("./config/redis.js");
 const { RedisStore } = require("connect-redis");
 const redisClient = require("./config/redis.js");
-const crypto = require("crypto");
-const cors = require("cors");
 const {
   loginLimiter,
   tokenLimiter,
@@ -196,7 +201,7 @@ app.post("/token", tokenLimiter, async (req, res) => {
   }
   if (
     authCode.clientId !== client_id ||
-    !authCode.redirectUri.includes(redirect_uri)
+    authCode.redirectUri !== redirect_uri
   ) {
     return res.status(401).json({ message: "Invalid authorization code" });
   }
