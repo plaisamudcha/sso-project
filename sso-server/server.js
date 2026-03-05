@@ -4,6 +4,7 @@ const { envConfig } = require("./config/config.js");
 const { connectDB } = require("./config/db.js");
 const User = require("./model/user.js");
 const AuthCode = require("./model/authCode.js");
+const OAuthClient = require("./model/oAuthClient.js");
 const { v4: uuidv4 } = require("uuid");
 const {
   generateRefreshToken,
@@ -48,11 +49,21 @@ app.post("/register", async (req, res) => {
   res.json({ message: "Register successfully" });
 });
 
-app.get("/authorize", (req, res) => {
+app.get("/authorize", async (req, res) => {
   const { client_id, redirect_uri } = req.query;
 
   if (!client_id || !redirect_uri) {
     return res.status(400).send("Invalid request");
+  }
+
+  const client = await OAuthClient.findOne({ clientId: client_id });
+
+  if (!client) {
+    return res.status(400).send("Invalid client");
+  }
+
+  if (!client.redirectUris.includes(redirect_uri)) {
+    return res.status(400).send("Invalid redirect_uri");
   }
 
   req.session.oauth = {
