@@ -40,6 +40,11 @@ connectDB();
 app.post("/register", async (req, res) => {
   const { email, password } = req.body;
 
+  const existing = await User.findOne({ email });
+  if (existing) {
+    return res.status(400).json({ message: "Email already exists" });
+  }
+
   const hashed = await bcrypt.hash(password, envConfig.SALT_ROUNDS);
 
   await User.create({
@@ -106,7 +111,9 @@ app.get("/authorize", async (req, res) => {
     redirect_uri,
   };
 
-  res.render("login");
+  req.session.save(() => {
+    res.render("login");
+  });
 });
 
 app.post("/login", async (req, res) => {
@@ -120,7 +127,7 @@ app.post("/login", async (req, res) => {
 
   const client = await OAuthClient.findOne({ clientId: client_id });
 
-  if (!client || client.redirectUris.includes(redirect_uri)) {
+  if (!client || !client.redirectUris.includes(redirect_uri)) {
     return res.status(401).send("Invalid OAuth client");
   }
 
@@ -165,18 +172,27 @@ app.post("/login", async (req, res) => {
 app.post("/token", async (req, res) => {
   const { code, deviceId, deviceType, client_id, redirect_uri } = req.body;
 
+  if (!code || !client_id || !redirect_uri) {
+    return res.status(400).json({ message: "Missing parameters" });
+  }
+
   const authCode = await AuthCode.findOne({ code });
   if (!authCode) {
     return res.status(400).json({ message: "Invalid code" });
   }
   if (
     authCode.clientId !== client_id ||
-    authCode.redirectUri !== redirect_uri
+    !authCode.redirectUri.includes(redirect_uri)
   ) {
-    return res.status(401).json({ message: "Invalid Client" });
+    return res.status(401).json({ message: "Invalid authorization code" });
   }
   if (authCode.expiresAt < new Date()) {
     return res.status(400).json({ message: "Code expired" });
+  }
+
+  const client = await OAuthClient.findOne({ clientId: client_id });
+  if (!client || !client.redirectUris.includes(redirect_uri)) {
+    return res.status(401).json({ message: "Invalid Client" });
   }
 
   const sessionId = uuidv4();
@@ -187,7 +203,7 @@ app.post("/token", async (req, res) => {
     userId: authCode.userId.toString(),
     deviceId,
     deviceType,
-    refreshToken: "",
+    refreshToken,
     isActive: true,
   };
 
@@ -202,13 +218,6 @@ app.post("/token", async (req, res) => {
   const accessToken = generateToken({
     userId: authCode.userId,
     sessionId,
-  });
-
-  // update refreshtoken ใน redis
-  sessionData.refreshToken = refreshToken;
-
-  await redis.set(`session:${sessionId}`, JSON.stringify(sessionData), {
-    EX: 60 * 60 * 24 * 7,
   });
 
   await AuthCode.deleteOne({ code });
