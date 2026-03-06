@@ -40,7 +40,8 @@ sess:{sessionId}
 {
 oauth: {
 client_id,
-redirect_uri
+redirect_uri,
+state
 }
 }
 
@@ -70,7 +71,7 @@ clientSecret,
 redirectUris[]
 }
 
-## ภาพรวม Architecture (2 ระบบ)
+## ภาพรวม Architecture (3 ระบบ)
 
 #### 1️⃣ SSO Server (Auth Center)
 
@@ -89,6 +90,14 @@ redirectUris[]
 • เก็บไว้ใน express-session
 • auto refresh ถ้า 401
 
+#### 3️⃣ ClientB (Passport OAuth2)
+
+• redirect ไป SSO ผ่าน passport-oauth2
+• รับ code แล้วแลก token ผ่าน OAuth2 strategy
+• เก็บ user/token ใน passport session
+• auto refresh ถ้า 401
+• verify upstream session ผ่าน /session-info
+
 ## Flow Step
 
 #### STEP 0 — Developer Register OAuth Client
@@ -100,13 +109,14 @@ redirectUris[]
 #### 🔐 STEP 1 — User กด Login ที่ ClientA
 
 • User เข้า GET /login
-• Browser ถูก redirect ไป /authorize?client_id=xxx&redirect_uri=xxx
-• query ที่ส่งไปมี client_id และ redirect_uri
+• ClientA สร้าง state แล้วเก็บใน req.session.oauthState
+• Browser ถูก redirect ไป /authorize?client_id=xxx&redirect_uri=xxx&state=xxx
+• query ที่ส่งไปมี client_id, redirect_uri และ state
 
 #### 🔑 STEP 2 — เข้า SSO /authorize
 
 • ตรวจว่า client_id และ redirect_uri ถูกต้องหรือไม่ (ตรวจจาก OAuthClients)
-• เก็บข้อมูล req.session.oauth = { client_id, redirect_uri } ใน redis
+• เก็บข้อมูล req.session.oauth = { client_id, redirect_uri, state } ใน redis
 • แสดงหน้า login page
 
 #### 👤 STEP 3 — User login ที่ SSO
@@ -114,11 +124,12 @@ redirectUris[]
 • POST /login ส่ง body = { email, password }
 • เชค email, password ใน Users
 • gen code ผ่าน uuid() บันทึกลงใน Authorization Code
-• redirect กลับ /redirect_uri?code=xxxx
+• redirect กลับ /redirect_uri?code=xxxx&state=xxxx
 
 #### 🔁 STEP 4 — ClientA รับ code
 
-• รับ Authorization code มาทาง /callback?code=xxxx
+• รับ Authorization code และ state มาทาง /callback?code=xxxx&state=xxxx
+• verify state กับ req.session.oauthState
 • client เรียก /token ส่ง body = {code, client_id, redirect_uri, deviceId, deviceType }
 
 #### 🎟 STEP 5 — SSO /token
@@ -135,11 +146,11 @@ redirectUris[]
 • set redis key deviceSession:{deviceType}:{deviceId} = sessionId (TTL 7 วัน)
 • สร้าง accessToken จาก payload = { userId, sessionId }
 • ลบ Authorization code ออกจาก DB
-• ส่ง token กลับ client = { accessToken, refreshToken }
+• ส่ง token กลับ client = { access_token, token_type, expires_in, refresh_token }
 
 #### 🧾 STEP 6 — ClientA เก็บ token ใน session
 
-• req.session.user = { accessToken, refreshToken }
+• req.session.user = { accessToken, refreshToken, tokenType, expiresIn, userId, sessionId }
 
 #### 🔄 STEP 7 — Client เรียก API ที่ต้องใช้ auth
 
@@ -161,7 +172,12 @@ redirectUris[]
 • อัพเดต redis session.refreshToken = newRefreshToken
 • ต่ออายุ deviceSession:{deviceType}:{deviceId} ให้ผูกกับ sessionId เดิม
 • สร้าง newAccessToken
-• ส่งกลับ client = { accessToken, refreshToken }
+• ส่งกลับ client = { access_token, token_type, expires_in, refresh_token }
+
+#### 🔍 STEP 10.1 — Cross-client Session Sync
+
+• ClientA/ClientB เรียก GET /session-info เพื่อตรวจว่า session ยัง active บน SSO
+• ถ้า /session-info ตอบ 401 ให้ลบ local session แล้วถือว่า logout แล้ว
 
 #### 🚪 STEP 11 — Logout เฉพาะเครื่อง
 
