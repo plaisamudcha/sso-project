@@ -10,8 +10,8 @@ http:
     type: json
     data: |-
       {
-        "name": "clientA",
-        "redirectUris": ["http://localhost:5000/callback"]
+        "name": "clientB",
+        "redirectUris": ["http://localhost:5002/callback"]
       }
   auth: inherit
 

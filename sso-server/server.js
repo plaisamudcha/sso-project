@@ -133,7 +133,7 @@ app.post("/register-oauth-client", async (req, res) => {
 });
 
 app.get("/oauth-client", async (req, res) => {
-  const data = await OAuthClient.findOne();
+  const data = await OAuthClient.find();
 
   return res.status(200).json(data);
 });
@@ -284,16 +284,18 @@ app.post("/token", tokenLimiter, async (req, res) => {
   }
 
   if (!client.grantTypes?.includes("authorization_code")) {
-    return res.status(401).json({ message: "Client not allowed for authorization_code grant" });
+    return res
+      .status(401)
+      .json({ message: "Client not allowed for authorization_code grant" });
   }
 
-  if (client.tokenEndpointAuthMethod === 'client_secret_post') {
+  if (client.tokenEndpointAuthMethod === "client_secret_post") {
     if (!client_secret) {
-      return res.status(401).json({ message: 'Missing client_secret' })
+      return res.status(401).json({ message: "Missing client_secret" });
     }
 
     if (client_secret !== client.clientSecret) {
-      return res.status(401).json({ message: "Invalid client credentials"})
+      return res.status(401).json({ message: "Invalid client credentials" });
     }
   }
 
