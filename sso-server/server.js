@@ -199,7 +199,7 @@ app.post("/login", loginLimiter, async (req, res) => {
     return res.status(400).send("Unauthorized flow");
   }
 
-  const { client_id, redirect_uri, state } = req.session.oauth;
+  const { client_id, redirect_uri, state, scope, nonce } = req.session.oauth;
 
   const client = await OAuthClient.findOne({ clientId: client_id });
 
@@ -215,13 +215,20 @@ app.post("/login", loginLimiter, async (req, res) => {
 
   const code = uuidv4();
 
-  await AuthCode.create({
+  const authCode = await AuthCode.create({
     code,
     userId: user._id,
     clientId: client_id,
     redirectUri: redirect_uri,
     expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+
+    // OIDC context
+    scope: scope || "",
+    nonce: nonce || null,
+    authTime: new Date(),
   });
+
+  console.log("create auth code", authCode);
 
   delete req.session.oauth;
 
