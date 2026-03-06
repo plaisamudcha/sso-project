@@ -1,12 +1,15 @@
+// Libraries
 const express = require("express");
-const { createApiClient } = require("./services/apiClient");
 const axios = require("axios");
 const session = require("express-session");
 const { RedisStore } = require("connect-redis");
 const { createClient } = require("redis");
-const { envConfig } = require("./config");
-const { parseJwt } = require("./helper");
 const { v4: uuidv4 } = require("uuid");
+
+// Utilities
+const { createApiClient } = require("./services/apiClient");
+const { parseJwt } = require("./helper");
+const { envConfig } = require("./config");
 
 const app = express();
 const redisClient = createClient({
@@ -18,7 +21,7 @@ redisClient.connect().catch(console.error);
 app.use(
   session({
     store: new RedisStore({ client: redisClient }),
-    secret: envConfig.CLIENTA_SECRET,
+    secret: envConfig.APP_SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: { secure: false },

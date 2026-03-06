@@ -1,0 +1,181 @@
+// Libraries
+const express = require("express");
+const session = require("express-session");
+const { RedisStore } = require("connect-redis");
+const { createClient } = require("redis");
+const passport = require("passport");
+const OAuth2Strategy = require("passport-oauth2");
+const jwt = require("jsonwebtoken");
+const { v4: uuidv4 } = require("uuid");
+
+// Utilities
+const envConfig = require("./config");
+const { createApiClient } = require("./services/apiClient");
+
+function destroyLocalSession(req, res, redirectPath = "/") {
+  req.logout(() => {
+    req.session.destroy(() => {
+      res.redirect(redirectPath);
+    });
+  });
+}
+
+class DeviceAwareOAuth2Strategy extends OAuth2Strategy {
+  authenticate(req, options = {}) {
+    options.deviceId = req.session.browserId;
+    options.deviceType = "browser";
+    return super.authenticate(req, options);
+  }
+
+  tokenParams(options) {
+    return {
+      deviceId: options.deviceId,
+      deviceType: options.deviceType,
+      client_id: envConfig.CLIENT_ID,
+      redirect_uri: envConfig.REDIRECT_URI,
+    };
+  }
+}
+
+const app = express();
+const redisClient = createClient({
+  url: envConfig.REDIS_URL,
+});
+
+redisClient.connect().catch(console.error);
+
+app.use(
+  session({
+    store: new RedisStore({ client: redisClient }),
+    secret: envConfig.APP_SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: { secure: false, httpOnly: true },
+  }),
+);
+
+app.use((req, res, next) => {
+  if (!req.session.browserId) {
+    req.session.browserId = uuidv4();
+  }
+  next();
+});
+
+app.use(passport.initialize());
+app.use(passport.session());
+
+passport.use(
+  "sso",
+  new DeviceAwareOAuth2Strategy(
+    {
+      authorizationURL: `${envConfig.SSO_SERVER}/authorize`,
+      tokenURL: `${envConfig.SSO_SERVER}/token`,
+      clientID: envConfig.CLIENT_ID,
+      clientSecret: envConfig.CLIENT_SECRET,
+      callbackURL: envConfig.REDIRECT_URI,
+      state: true,
+    },
+    (accessToken, refreshToken, _params, _profile, done) => {
+      const payload = jwt.decode(accessToken) || {};
+      return done(null, {
+        userId: payload.userId,
+        sessionId: payload.sessionId,
+        accessToken,
+        refreshToken,
+      });
+    },
+  ),
+);
+
+passport.serializeUser((user, done) => done(null, user));
+passport.deserializeUser((user, done) => done(null, user));
+
+app.get("/", (req, res) => {
+  if (!req.isAuthenticated || !req.isAuthenticated()) {
+    return res.send(`<a href='/login'>Login with SSO</a>`);
+  }
+
+  return res.send(`
+    <h3>ClienB</h3>
+    <p>User ID: ${req.user.userId}</p>
+    <p>Session ID: ${req.user.sessionId}</p>
+    <a href='/me'>View Profile</a>
+    <a href='/logout'>Logout this device</a>
+    <a href='/logout-all'>Logout all devices</a>
+    `);
+});
+
+app.get("/login", passport.authenticate("sso"));
+
+app.get(
+  "/auth/callback",
+  passport.authenticate("sso", {
+    failureRedirect: "/",
+  }),
+  (req, res) => {
+    res.redirect("/");
+  },
+);
+
+app.get("/me", (req, res) => {
+  if (!req.isAuthenticated || !req.isAuthenticated()) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  return res.json(req.user);
+});
+
+app.get("/protected-check", async (req, res) => {
+  if (!req.isAuthenticated || !req.isAuthenticated()) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  const api = createApiClient(req);
+
+  try {
+    const result = await api.post("/logout");
+
+    return res.json({ message: "Protected call success", result: result.data });
+  } catch (err) {
+    return res.status(500).json({
+      message: "Protected call failed",
+      error: err.response?.data || err.message,
+    });
+  }
+});
+
+app.get("/logout", async (req, res) => {
+  if (!req.isAuthenticated || !req.isAuthenticated()) {
+    return destroyLocalSession(req, res);
+  }
+
+  const api = createApiClient(req);
+
+  try {
+    await api.post("/logout");
+  } catch (err) {
+    console.error("SSO logout error:", err.message);
+  }
+
+  return destroyLocalSession(req, res);
+});
+
+app.get("/logout-all", async (req, res) => {
+  if (!req.isAuthenticated || !req.isAuthenticated()) {
+    return destroyLocalSession(req, res);
+  }
+
+  const api = createApiClient(req);
+
+  try {
+    await api.post("/logout-all");
+  } catch (err) {
+    console.error("SSO global logout error:", err.message);
+  }
+
+  return destroyLocalSession(req, res);
+});
+
+app.listen(envConfig.PORT, () => {
+  console.log(`Client B running on port ${envConfig.PORT}`);
+});

@@ -1,6 +1,4 @@
-const dotenv = require("dotenv");
-
-dotenv.config();
+require("dotenv").config();
 
 const envConfig = {
   APP_SESSION_SECRET: process.env.APP_SESSION_SECRET,
@@ -8,8 +6,8 @@ const envConfig = {
   CLIENT_ID: process.env.CLIENT_ID,
   SSO_SERVER: process.env.SSO_SERVER,
   REDIRECT_URI: process.env.REDIRECT_URI,
-  PORT: process.env.PORT,
   REDIS_URL: process.env.REDIS_URL,
+  PORT: process.env.PORT,
 };
 
-module.exports = { envConfig };
+module.exports = envConfig;
