@@ -288,10 +288,10 @@ app.post("/token", tokenLimiter, async (req, res) => {
       iss: envConfig.ISSUER,
       sub: authCode.userId.toString(),
       aud: client_id,
-      nonce: authCode.nonce || undefined,
       auth_time: Math.floor(
         new Date(authCode.authTime || Date.now()).getTime() / 1000,
       ),
+      ...(authCode.nonce ? { nonce: authCode.nonce } : {}),
     });
   }
 
