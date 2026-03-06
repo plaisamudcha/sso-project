@@ -6,6 +6,20 @@ const authCodeSchema = new mongoose.Schema({
   clientId: String,
   redirectUri: String,
   expiresAt: Date,
+
+  // OIDC fields
+  scope: {
+    type: String,
+    default: "",
+  },
+  nonce: {
+    type: String,
+    default: null,
+  },
+  authTime: {
+    type: Date,
+    default: Date.now,
+  },
 });
 
 module.exports = mongoose.model("AuthCode", authCodeSchema);
