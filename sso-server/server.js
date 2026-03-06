@@ -75,6 +75,7 @@ app.use(
     store: new RedisStore({ client: redisClient }),
     secret: envConfig.SSO_SECRET,
     resave: false,
+    saveUninitialized: false,
     cookie: {
       secure: false,
       httpOnly: true,
@@ -245,9 +246,17 @@ app.post("/login", loginLimiter, async (req, res) => {
 });
 
 app.post("/token", tokenLimiter, async (req, res) => {
-  const { code, deviceId, deviceType, client_id, redirect_uri } = req.body;
+  const { code, deviceId, deviceType, client_id, client_secret, redirect_uri } =
+    req.body;
 
-  if (!code || !client_id || !redirect_uri || !deviceId || !deviceType) {
+  if (
+    !code ||
+    !client_id ||
+    !client_secret ||
+    !redirect_uri ||
+    !deviceId ||
+    !deviceType
+  ) {
     return res.status(400).json({ message: "Missing parameters" });
   }
 
@@ -272,6 +281,20 @@ app.post("/token", tokenLimiter, async (req, res) => {
   const client = await OAuthClient.findOne({ clientId: client_id });
   if (!client || !client.redirectUris.includes(redirect_uri)) {
     return res.status(401).json({ message: "Invalid Client" });
+  }
+
+  if (!client.grantTypes?.includes("authorization_code")) {
+    return res.status(401).json({ message: "Client not allowed for authorization_code grant" });
+  }
+
+  if (client.tokenEndpointAuthMethod === 'client_secret_post') {
+    if (!client_secret) {
+      return res.status(401).json({ message: 'Missing client_secret' })
+    }
+
+    if (client_secret !== client.clientSecret) {
+      return res.status(401).json({ message: "Invalid client credentials"})
+    }
   }
 
   const existingSessionId = await redis.get(
