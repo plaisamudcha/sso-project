@@ -96,6 +96,22 @@ app.get("/logout", async (req, res) => {
   });
 });
 
+app.get("/logout-all", async (req, res) => {
+  const api = createApiClient(req);
+
+  try {
+    await api.post("/logout-all");
+  } catch (err) {
+    // SSO server อาจ return 401 ถ้า token หมดอายุแล้ว
+    // ไม่ต้อง block การ logout ฝั่ง client
+    console.error("SSO global logout error:", err.message);
+  }
+
+  req.session.destroy(() => {
+    res.redirect("/");
+  });
+});
+
 app.listen(envConfig.PORT, () => {
   console.log(`ClientA is running on port http://localhost:${envConfig.PORT}`);
 });

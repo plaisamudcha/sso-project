@@ -26,17 +26,22 @@ deviceType,
 refreshToken
 }
 
-userSession:<userId> (SET)
+userSessions:<userId> (SET)
 Set [
 sessionId1
 sessionId2
 sessionId3
 ]
 
-oauthSession:{sessionId}
+deviceSession:<deviceType>:<deviceId>
+sessionId
+
+sess:{sessionId}
 {
-client_id
+oauth: {
+client_id,
 redirect_uri
+}
 }
 
 ## MongoDB
@@ -62,7 +67,7 @@ oAuthClients
 name,
 clientId,
 clientSecret,
-redeirectUris[]
+redirectUris[]
 }
 
 ## ภาพรวม Architecture (2 ระบบ)
@@ -106,9 +111,8 @@ redeirectUris[]
 
 #### 👤 STEP 3 — User login ที่ SSO
 
-• POST /login ส่ง body = { email, password, deviceType }
+• POST /login ส่ง body = { email, password }
 • เชค email, password ใน Users
-• เชคถ้า deviceType = 'mobile' ไปเชค redis userSessions:{userId} ถ้ามี mobile session จะลบอันเก่า
 • gen code ผ่าน uuid() บันทึกลงใน Authorization Code
 • redirect กลับ /redirect_uri?code=xxxx
 
@@ -120,11 +124,15 @@ redeirectUris[]
 #### 🎟 STEP 5 — SSO /token
 
 • ตรวจ code จาก Authorization code ใน DB
-• เชค client_id และ redirect_uri ว่ามีส่งมาหรือไม่
+• เชค mandatory body = { code, client_id, redirect_uri, deviceId, deviceType }
+• เชค deviceType ต้องเป็น mobile หรือ browser เท่านั้น
+• เชค key redis: deviceSession:{deviceType}:{deviceId}
+• ถ้ามี session เดิมบน device/browser เดียวกัน จะลบ session เก่าก่อน (1 account ต่อ 1 device/browser)
 • สร้าง sessionId ผ่าน uuidv4()
 • sign refreshToken
 • สร้าง session ใน redis ชื่อ session:{sessionId} = { userId, deviceId, deviceType, refreshToken, isActive } TTL 7 วัน
-• เพิ่ม session เข้า redis ชื่อ userSession:{userId} = Set(sessionId)
+• เพิ่ม session เข้า redis ชื่อ userSessions:{userId} = Set(sessionId)
+• set redis key deviceSession:{deviceType}:{deviceId} = sessionId (TTL 7 วัน)
 • สร้าง accessToken จาก payload = { userId, sessionId }
 • ลบ Authorization code ออกจาก DB
 • ส่ง token กลับ client = { accessToken, refreshToken }
@@ -151,6 +159,7 @@ redeirectUris[]
 • รับ refreshToken มา decode ได้ sessionId ตรวจกับ redis ชื่อ session:{sessionId} ว่าตรงกันไหม
 • สร้าง newRefreshToken
 • อัพเดต redis session.refreshToken = newRefreshToken
+• ต่ออายุ deviceSession:{deviceType}:{deviceId} ให้ผูกกับ sessionId เดิม
 • สร้าง newAccessToken
 • ส่งกลับ client = { accessToken, refreshToken }
 
@@ -158,11 +167,13 @@ redeirectUris[]
 
 • ส่งไป POST /logout
 • ลบ session:{sessionId}
-• userSession:{userId},sessionId ลบแค่ sessionId นั้นใน set user
+• ลบ sessionId นั้นออกจาก userSessions:{userId}
+• ลบ key deviceSession:{deviceType}:{deviceId} ของเครื่องนั้น
 
 #### 🌍 STEP 12 — Logout All Devices
 
 • POST /logout-all
-• SMEMBERS userSession:{userId}
-• DEL session:{sessionId}
+• SMEMBERS userSessions:{userId}
+• DEL session:{sessionId} ทุกตัว
+• DEL deviceSession:{deviceType}:{deviceId} ทุกตัวที่อ้างถึง session ของ user นี้
 • DEL userSessions:{userId}

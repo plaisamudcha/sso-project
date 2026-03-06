@@ -30,6 +30,35 @@ const {
 } = require("./midlleware/rateLimit.js");
 
 const app = express();
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
+const SUPPORTED_DEVICE_TYPES = new Set(["mobile", "browser"]);
+
+function getDeviceSessionKey(deviceType, deviceId) {
+  return `deviceSession:${deviceType}:${deviceId}`;
+}
+
+async function removeSessionById(sessionId) {
+  const sessionRaw = await redis.get(`session:${sessionId}`);
+  let session;
+
+  if (sessionRaw) {
+    try {
+      session = JSON.parse(sessionRaw);
+    } catch {
+      session = null;
+    }
+  }
+
+  await redis.del(`session:${sessionId}`);
+
+  if (session?.userId) {
+    await redis.sRem(`userSessions:${session.userId}`, sessionId);
+  }
+
+  if (session?.deviceType && session?.deviceId) {
+    await redis.del(getDeviceSessionKey(session.deviceType, session.deviceId));
+  }
+}
 
 app.use(express.json());
 app.use(
@@ -136,7 +165,7 @@ app.get("/authorize", async (req, res) => {
 });
 
 app.post("/login", loginLimiter, async (req, res) => {
-  const { email, password, deviceType } = req.body;
+  const { email, password } = req.body;
 
   if (!req.session.oauth) {
     return res.status(400).send("Unauthorized flow");
@@ -156,23 +185,6 @@ app.post("/login", loginLimiter, async (req, res) => {
   const valid = await bcrypt.compare(password, user.password);
   if (!valid) return res.status(400).json({ message: "Invalid credentials" });
 
-  // mobile จำกัดต่อ 1 เครื่อง
-  if (deviceType === "mobile") {
-    const sessionIds = await redis.sMembers(`userSessions:${user._id}`);
-
-    for (const id of sessionIds) {
-      const sessionRaw = await redis.get(`session:${id}`);
-      if (!sessionRaw) continue;
-
-      const session = JSON.parse(sessionRaw);
-
-      if (session.deviceType === "mobile") {
-        await redis.del(`session:${id}`);
-        await redis.sRem(`userSessions:${user._id}`, id);
-      }
-    }
-  }
-
   const code = uuidv4();
 
   await AuthCode.create({
@@ -191,8 +203,12 @@ app.post("/login", loginLimiter, async (req, res) => {
 app.post("/token", tokenLimiter, async (req, res) => {
   const { code, deviceId, deviceType, client_id, redirect_uri } = req.body;
 
-  if (!code || !client_id || !redirect_uri) {
+  if (!code || !client_id || !redirect_uri || !deviceId || !deviceType) {
     return res.status(400).json({ message: "Missing parameters" });
+  }
+
+  if (!SUPPORTED_DEVICE_TYPES.has(deviceType)) {
+    return res.status(400).json({ message: "Invalid device type" });
   }
 
   const authCode = await AuthCode.findOne({ code });
@@ -214,6 +230,15 @@ app.post("/token", tokenLimiter, async (req, res) => {
     return res.status(401).json({ message: "Invalid Client" });
   }
 
+  const existingSessionId = await redis.get(
+    getDeviceSessionKey(deviceType, deviceId),
+  );
+
+  // One account per device/browser: replacing any existing login on this device.
+  if (existingSessionId) {
+    await removeSessionById(existingSessionId);
+  }
+
   const sessionId = uuidv4();
 
   const refreshToken = generateRefreshToken(sessionId);
@@ -228,11 +253,15 @@ app.post("/token", tokenLimiter, async (req, res) => {
 
   // เก็บ session พร้อม TTL 7 วัน
   await redis.set(`session:${sessionId}`, JSON.stringify(sessionData), {
-    EX: 60 * 60 * 24 * 7,
+    EX: SESSION_TTL_SECONDS,
   });
 
   // เพิ่ม session เข้า userSessions
   await redis.sAdd(`userSessions:${authCode.userId}`, sessionId);
+
+  await redis.set(getDeviceSessionKey(deviceType, deviceId), sessionId, {
+    EX: SESSION_TTL_SECONDS,
+  });
 
   const accessToken = generateToken({
     userId: authCode.userId,
@@ -275,8 +304,16 @@ app.post("/refresh", refreshLimiter, async (req, res) => {
     session.refreshToken = newRefreshToken;
 
     await redis.set(`session:${payload.sessionId}`, JSON.stringify(session), {
-      EX: 60 * 60 * 24 * 7,
+      EX: SESSION_TTL_SECONDS,
     });
+
+    if (session.deviceType && session.deviceId) {
+      await redis.set(
+        getDeviceSessionKey(session.deviceType, session.deviceId),
+        payload.sessionId,
+        { EX: SESSION_TTL_SECONDS },
+      );
+    }
 
     res.json({
       accessToken: newAccessToken,
@@ -288,10 +325,7 @@ app.post("/refresh", refreshLimiter, async (req, res) => {
 });
 
 app.post("/logout", verifySession, async (req, res) => {
-  console.log("inside this function");
-  await redis.del(`session:${req.user.sessionId}`);
-
-  await redis.sRem(`userSessions:${req.user.userId}`, req.user.sessionId);
+  await removeSessionById(req.user.sessionId);
 
   res.json({ message: "logout success" });
 });
@@ -300,7 +334,7 @@ app.post("/logout-all", verifySession, async (req, res) => {
   const sessionIds = await redis.sMembers(`userSessions:${req.user.userId}`);
 
   for (const id of sessionIds) {
-    await redis.del(`session:${id}`);
+    await removeSessionById(id);
   }
 
   await redis.del(`userSessions:${req.user.userId}`);
