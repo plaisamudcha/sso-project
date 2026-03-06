@@ -17,6 +17,7 @@ const OAuthClient = require("./model/oAuthClient.js");
 const {
   generateRefreshToken,
   generateToken,
+  generateIdToken,
   verifyRefreshToken,
 } = require("./services/tokenService.js");
 const { verifySession } = require("./midlleware/auth.js");
@@ -278,6 +279,22 @@ app.post("/token", tokenLimiter, async (req, res) => {
     return res.status(400).json({ message: "Code expired" });
   }
 
+  const grantedScopes = (authCode.scope || "").split(/\s+/).filter(Boolean);
+  const isOidc = grantedScopes.includes("openid");
+
+  let idToken;
+  if (isOidc) {
+    idToken = generateIdToken({
+      iss: envConfig.ISSUER,
+      sub: authCode.userId.toString(),
+      aud: client_id,
+      nonce: authCode.nonce || undefined,
+      auth_time: Math.floor(
+        new Date(authCode.authTime || Date.now()).getTime() / 1000,
+      ),
+    });
+  }
+
   const client = await OAuthClient.findOne({ clientId: client_id });
   if (!client || !client.redirectUris.includes(redirect_uri)) {
     return res.status(401).json({ message: "Invalid Client" });
@@ -363,14 +380,21 @@ app.post("/token", tokenLimiter, async (req, res) => {
     sessionId,
   });
 
-  await AuthCode.deleteOne({ code });
-
-  res.json({
+  const responsePayload = {
     access_token: accessToken,
     token_type: "Bearer",
     expires_in: 15 * 60,
     refresh_token: refreshToken,
-  });
+  };
+
+  if (isOidc) {
+    responsePayload.id_token = idToken;
+    responsePayload.scope = authCode.scope || "openid";
+  }
+
+  await AuthCode.deleteOne({ code });
+
+  res.json(responsePayload);
 });
 
 app.post("/refresh", refreshLimiter, async (req, res) => {

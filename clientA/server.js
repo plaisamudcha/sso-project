@@ -62,6 +62,8 @@ app.get("/", ensureUpstreamSession, (req, res) => {
     return res.send(`
       <h1>ClientA</h1>
       <a href='/login'>Login with SSO</a>
+      <p>or</p>
+      <a href='/login-oidc'>Login with OIDC</a>
       `);
   }
 
@@ -80,6 +82,18 @@ app.get("/login", (req, res) => {
   req.session.oauthState = state;
 
   const url = `${envConfig.SSO_SERVER}/authorize?client_id=${envConfig.CLIENT_ID}&redirect_uri=${envConfig.REDIRECT_URI}&state=${state}`;
+  req.session.save(() => {
+    res.redirect(url);
+  });
+});
+
+app.get("/login-oidc", (req, res) => {
+  const state = uuidv4();
+  const nonce = uuidv4();
+  req.session.oauthState = state;
+  req.session.oauthNonce = nonce;
+
+  const url = `${envConfig.SSO_SERVER}/authorize?client_id=${envConfig.CLIENT_ID}&redirect_uri=${envConfig.REDIRECT_URI}&scope=openid&nonce=${nonce}&state=${state}`;
   req.session.save(() => {
     res.redirect(url);
   });
@@ -108,6 +122,14 @@ app.get("/callback", async (req, res) => {
       deviceType: "browser",
     });
 
+    console.log("Token response:", tokenResponse.data);
+
+    if (tokenResponse.data.id_token) {
+      console.log("decode id_token:", parseJwt(tokenResponse.data.id_token));
+    } else {
+      console.warn("No id_token received in token response");
+    }
+
     const { access_token, refresh_token, token_type, expires_in } =
       tokenResponse.data;
     const tokenPayload = parseJwt(access_token);
@@ -120,8 +142,6 @@ app.get("/callback", async (req, res) => {
       userId: tokenPayload.userId,
       sessionId: tokenPayload.sessionId,
     };
-
-    console.log("user logged in", req.session.user);
 
     res.redirect("/");
   } catch (err) {

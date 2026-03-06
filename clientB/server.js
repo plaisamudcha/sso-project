@@ -39,7 +39,22 @@ class DeviceAwareOAuth2Strategy extends OAuth2Strategy {
   authenticate(req, options = {}) {
     options.deviceId = req.session.browserId;
     options.deviceType = "browser";
+
+    // if OIDC login, add scope and nonce
+    if (String(options.scope || "").includes("openid")) {
+      options.nonce = req.session.oidcNonce;
+    }
+
     return super.authenticate(req, options);
+  }
+
+  authorizationParams(options) {
+    const params = {};
+    if (options.nonce) {
+      params.nonce = options.nonce;
+    }
+
+    return params;
   }
 
   tokenParams(options) {
@@ -91,13 +106,22 @@ passport.use(
       callbackURL: envConfig.REDIRECT_URI,
       state: true,
     },
-    (accessToken, refreshToken, _params, _profile, done) => {
+    (accessToken, refreshToken, params, _profile, done) => {
+      console.log("token params:", params);
+
+      if (params.id_token) {
+        console.log("Decoded ID Token:", jwt.decode(params.id_token));
+      } else {
+        console.warn("No ID Token received in token response");
+      }
+
       const payload = jwt.decode(accessToken) || {};
       return done(null, {
         userId: payload.userId,
         sessionId: payload.sessionId,
         accessToken,
         refreshToken,
+        idToken: params.id_token,
       });
     },
   ),
@@ -111,6 +135,8 @@ app.get("/", ensureUpstreamSession, (req, res) => {
     return res.send(`
       <h1>ClientB</h1>
       <a href='/login'>Login with SSO</a>
+      <p>or</p>
+      <a href='/login-oidc'>Login with OIDC</a>
       `);
   }
 
@@ -125,6 +151,15 @@ app.get("/", ensureUpstreamSession, (req, res) => {
 });
 
 app.get("/login", passport.authenticate("sso"));
+
+app.get(
+  "/login-oidc",
+  (req, res, next) => {
+    req.session.oidcNonce = uuidv4();
+    next();
+  },
+  passport.authenticate("sso", { scope: "openid" }),
+);
 
 app.get(
   "/callback",

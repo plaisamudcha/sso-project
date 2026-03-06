@@ -9,6 +9,10 @@ function generateRefreshToken(sessionId) {
   return jwt.sign({ sessionId }, envConfig.REFRESH_SECRET, { expiresIn: "7d" });
 }
 
+function generateIdToken(payload) {
+  return jwt.sign(payload, envConfig.ID_TOKEN_SECRET, { expiresIn: "15m" });
+}
+
 function verifyToken(token) {
   return jwt.verify(token, envConfig.ACCESS_SECRET);
 }
@@ -20,6 +24,7 @@ function verifyRefreshToken(token) {
 module.exports = {
   generateRefreshToken,
   generateToken,
+  generateIdToken,
   verifyToken,
   verifyRefreshToken,
 };
