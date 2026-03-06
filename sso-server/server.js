@@ -138,26 +138,51 @@ app.get("/oauth-client", async (req, res) => {
 });
 
 app.get("/authorize", async (req, res) => {
-  const { client_id, redirect_uri, state } = req.query;
+  const {
+    client_id,
+    redirect_uri,
+    state,
+    response_type = "code",
+    scope = "",
+    nonce,
+  } = req.query;
 
   if (!client_id || !redirect_uri) {
     return res.status(400).send("Invalid request");
   }
 
-  const client = await OAuthClient.findOne({ clientId: client_id });
+  if (response_type !== "code") {
+    return res.status(400).send("Unsupported response_type");
+  }
 
+  const client = await OAuthClient.findOne({ clientId: client_id });
   if (!client) {
     return res.status(400).send("Invalid client");
   }
-
   if (!client.redirectUris.includes(redirect_uri)) {
     return res.status(400).send("Invalid redirect_uri");
+  }
+
+  const requestedScopes = String(scope).trim()
+    ? String(scope).split(/\s+/)
+    : [];
+  const invalidScopes = requestedScopes.find(
+    (s) => !client.allowedScopes.includes(s),
+  );
+  if (invalidScopes) {
+    return res.status(400).send(`Invalid scope: ${invalidScopes}`);
+  }
+  const isOidcRequest = requestedScopes.includes("openid");
+  if (isOidcRequest && !nonce) {
+    return res.status(400).send("Missing nonce for openid scope");
   }
 
   req.session.oauth = {
     client_id,
     redirect_uri,
     state,
+    scope: requestedScopes.join(" "),
+    nonce: nonce || null,
   };
 
   console.log("save session to redis", req.session.oauth);
