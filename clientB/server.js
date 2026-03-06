@@ -20,6 +20,21 @@ function destroyLocalSession(req, res, redirectPath = "/") {
   });
 }
 
+async function ensureUpstreamSession(req, res, next) {
+  if (!req.isAuthenticated || !req.isAuthenticated()) {
+    return next();
+  }
+
+  const api = createApiClient(req);
+
+  try {
+    await api.get("/session-info");
+    return next();
+  } catch {
+    return destroyLocalSession(req, res);
+  }
+}
+
 class DeviceAwareOAuth2Strategy extends OAuth2Strategy {
   authenticate(req, options = {}) {
     options.deviceId = req.session.browserId;
@@ -46,6 +61,7 @@ redisClient.connect().catch(console.error);
 
 app.use(
   session({
+    name: "clientB.sid",
     store: new RedisStore({ client: redisClient }),
     secret: envConfig.APP_SESSION_SECRET,
     resave: false,
@@ -90,13 +106,16 @@ passport.use(
 passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user, done) => done(null, user));
 
-app.get("/", (req, res) => {
+app.get("/", ensureUpstreamSession, (req, res) => {
   if (!req.isAuthenticated || !req.isAuthenticated()) {
-    return res.send(`<a href='/login'>Login with SSO</a>`);
+    return res.send(`
+      <h1>ClientB</h1>
+      <a href='/login'>Login with SSO</a>
+      `);
   }
 
   return res.send(`
-    <h3>ClienB</h3>
+    <h1>ClientB</h1>
     <p>User ID: ${req.user.userId}</p>
     <p>Session ID: ${req.user.sessionId}</p>
     <a href='/me'>View Profile</a>
@@ -108,7 +127,7 @@ app.get("/", (req, res) => {
 app.get("/login", passport.authenticate("sso"));
 
 app.get(
-  "/auth/callback",
+  "/callback",
   passport.authenticate("sso", {
     failureRedirect: "/",
   }),
@@ -117,7 +136,7 @@ app.get(
   },
 );
 
-app.get("/me", (req, res) => {
+app.get("/me", ensureUpstreamSession, (req, res) => {
   if (!req.isAuthenticated || !req.isAuthenticated()) {
     return res.status(401).json({ message: "Unauthorized" });
   }

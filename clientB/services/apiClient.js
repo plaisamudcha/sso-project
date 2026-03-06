@@ -33,7 +33,14 @@ function createApiClient(req) {
             },
           );
 
-          const { accessToken, refreshToken } = refreshRes.data;
+          const accessToken =
+            refreshRes.data.access_token || refreshRes.data.accessToken;
+          const refreshToken =
+            refreshRes.data.refresh_token || refreshRes.data.refreshToken;
+
+          if (!accessToken || !refreshToken) {
+            throw new Error("Invalid refresh token response payload");
+          }
 
           req.user.accessToken = accessToken;
           req.user.refreshToken = refreshToken;

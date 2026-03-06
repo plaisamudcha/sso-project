@@ -34,14 +34,14 @@ function createApiClient(req) {
             },
           );
 
-          const { accessToken, refreshToken } = refreshRes.data;
+          const { access_token, refresh_token } = refreshRes.data;
 
           // update session
-          req.session.user.accessToken = accessToken;
-          req.session.user.refreshToken = refreshToken;
+          req.session.user.accessToken = access_token;
+          req.session.user.refreshToken = refresh_token;
 
           // retry old request
-          error.config.headers.Authorization = `Bearer ${accessToken}`;
+          error.config.headers.Authorization = `Bearer ${access_token}`;
           return api(error.config);
         } catch (refreshError) {
           req.session.destroy(() => {});

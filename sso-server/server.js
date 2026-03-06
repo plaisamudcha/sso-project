@@ -63,7 +63,7 @@ async function removeSessionById(sessionId) {
 app.use(express.json());
 app.use(
   cors({
-    origin: ["http://localhost:5000", "http://localhost:5001"],
+    origin: ["http://localhost:5000", "http://localhost:5002"],
     methods: ["GET", "POST"],
     credentials: true,
   }),
@@ -71,6 +71,7 @@ app.use(
 
 app.use(
   session({
+    name: "sso.sid",
     store: new RedisStore({ client: redisClient }),
     secret: envConfig.SSO_SECRET,
     resave: false,
@@ -138,7 +139,7 @@ app.get("/oauth-client", async (req, res) => {
 });
 
 app.get("/authorize", async (req, res) => {
-  const { client_id, redirect_uri } = req.query;
+  const { client_id, redirect_uri, state } = req.query;
 
   if (!client_id || !redirect_uri) {
     return res.status(400).send("Invalid request");
@@ -157,6 +158,7 @@ app.get("/authorize", async (req, res) => {
   req.session.oauth = {
     client_id,
     redirect_uri,
+    state,
   };
 
   console.log("save session to redis", req.session.oauth);
@@ -173,7 +175,7 @@ app.post("/login", loginLimiter, async (req, res) => {
     return res.status(400).send("Unauthorized flow");
   }
 
-  const { client_id, redirect_uri } = req.session.oauth;
+  const { client_id, redirect_uri, state } = req.session.oauth;
 
   const client = await OAuthClient.findOne({ clientId: client_id });
 
@@ -201,7 +203,14 @@ app.post("/login", loginLimiter, async (req, res) => {
 
   console.log("delete session from redis", req.session.oauth);
 
-  res.redirect(`${redirect_uri}?code=${code}`);
+  const redirectUrl = new URL(redirect_uri);
+  redirectUrl.searchParams.set("code", code);
+
+  if (state) {
+    redirectUrl.searchParams.set("state", state);
+  }
+
+  res.redirect(redirectUrl.toString());
 });
 
 app.post("/token", tokenLimiter, async (req, res) => {
@@ -278,6 +287,11 @@ app.post("/token", tokenLimiter, async (req, res) => {
     sessionId,
   );
 
+  console.log(
+    "userSession",
+    await redis.sMembers(`userSessions:${authCode.userId}`),
+  );
+
   await redis.set(getDeviceSessionKey(deviceType, deviceId), sessionId, {
     EX: SESSION_TTL_SECONDS,
   });
@@ -296,8 +310,10 @@ app.post("/token", tokenLimiter, async (req, res) => {
   await AuthCode.deleteOne({ code });
 
   res.json({
-    accessToken,
-    refreshToken,
+    access_token: accessToken,
+    token_type: "Bearer",
+    expires_in: 15 * 60,
+    refresh_token: refreshToken,
   });
 });
 
@@ -341,8 +357,10 @@ app.post("/refresh", refreshLimiter, async (req, res) => {
     }
 
     res.json({
-      accessToken: newAccessToken,
-      refreshToken: newRefreshToken,
+      access_token: newAccessToken,
+      token_type: "Bearer",
+      expires_in: 15 * 60,
+      refresh_token: newRefreshToken,
     });
   } catch (err) {
     return res.status(401).json({ message: "Invalid refresh token" });
@@ -365,6 +383,14 @@ app.post("/logout-all", verifySession, async (req, res) => {
   await redis.del(`userSessions:${req.user.userId}`);
 
   res.json({ message: "global logout success" });
+});
+
+app.get("/session-info", verifySession, async (req, res) => {
+  res.json({
+    userId: req.user.userId,
+    sessionId: req.user.sessionId,
+    active: true,
+  });
 });
 
 app.listen(envConfig.PORT, () => {

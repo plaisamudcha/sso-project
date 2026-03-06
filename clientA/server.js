@@ -11,6 +11,22 @@ const { createApiClient } = require("./services/apiClient");
 const { parseJwt } = require("./helper");
 const { envConfig } = require("./config");
 
+async function ensureUpstreamSession(req, res, next) {
+  if (!req.session.user?.accessToken) {
+    return next();
+  }
+
+  const api = createApiClient(req);
+
+  try {
+    await api.get("/session-info");
+    return next();
+  } catch {
+    delete req.session.user;
+    return next();
+  }
+}
+
 const app = express();
 const redisClient = createClient({
   url: envConfig.REDIS_URL,
@@ -20,11 +36,16 @@ redisClient.connect().catch(console.error);
 
 app.use(
   session({
+    name: "clientA.sid",
     store: new RedisStore({ client: redisClient }),
     secret: envConfig.APP_SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: false },
+    cookie: {
+      secure: false,
+      sameSite: "lax",
+      httpOnly: true,
+    },
   }),
 );
 app.use((req, res, next) => {
@@ -36,19 +57,46 @@ app.use((req, res, next) => {
 
 app.set("view engine", "ejs");
 
-app.get("/", (req, res) => {
-  res.render("home", {
-    user: req.session.user,
-  });
+app.get("/", ensureUpstreamSession, (req, res) => {
+  if (!req.session.user) {
+    return res.send(`
+      <h1>ClientA</h1>
+      <a href='/login'>Login with SSO</a>
+      `);
+  }
+
+  return res.send(`
+    <h1>ClientA</h1>
+    <p>User ID: ${req.session.user.userId}</p>
+    <p>Session ID: ${req.session.user.sessionId}</p>
+    <a href='/profile'>View Profile</a>
+    <a href='/logout'>Logout this device</a>
+    <a href='/logout-all'>Logout all devices</a>
+    `);
 });
 
 app.get("/login", (req, res) => {
-  const url = `${envConfig.SSO_SERVER}/authorize?client_id=${envConfig.CLIENT_ID}&redirect_uri=${envConfig.REDIRECT_URI}`;
-  res.redirect(url);
+  const state = uuidv4();
+  req.session.oauthState = state;
+
+  const url = `${envConfig.SSO_SERVER}/authorize?client_id=${envConfig.CLIENT_ID}&redirect_uri=${envConfig.REDIRECT_URI}&state=${state}`;
+  req.session.save(() => {
+    res.redirect(url);
+  });
 });
 
 app.get("/callback", async (req, res) => {
-  const { code } = req.query;
+  const { code, state } = req.query;
+
+  if (!code || !state) {
+    return res.status(400).send("Invalid callback parameters");
+  }
+
+  if (!req.session.oauthState || req.session.oauthState !== state) {
+    return res.status(400).send("Invalid OAuth state");
+  }
+
+  delete req.session.oauthState;
 
   try {
     const tokenResponse = await axios.post(`${envConfig.SSO_SERVER}/token`, {
@@ -59,12 +107,17 @@ app.get("/callback", async (req, res) => {
       deviceType: "browser",
     });
 
-    const { accessToken, refreshToken } = tokenResponse.data;
+    const { access_token, refresh_token, token_type, expires_in } =
+      tokenResponse.data;
+    const tokenPayload = parseJwt(access_token);
 
     req.session.user = {
-      accessToken,
-      refreshToken,
-      userId: parseJwt(accessToken).userId,
+      accessToken: access_token,
+      refreshToken: refresh_token,
+      tokenType: token_type,
+      expiresIn: expires_in,
+      userId: tokenPayload.userId,
+      sessionId: tokenPayload.sessionId,
     };
 
     console.log("user logged in", req.session.user);
@@ -75,14 +128,12 @@ app.get("/callback", async (req, res) => {
   }
 });
 
-app.get("/profile", async (req, res) => {
+app.get("/profile", ensureUpstreamSession, async (req, res) => {
   if (!req.session.user) {
-    return res.redirect("/");
+    return res.status(401).json({ message: "Unauthorized" });
   }
 
-  res.render("profile", {
-    user: req.session.user,
-  });
+  return res.json(req.session.user);
 });
 
 app.get("/logout", async (req, res) => {
