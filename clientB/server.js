@@ -145,6 +145,7 @@ app.get("/", ensureUpstreamSession, (req, res) => {
     <p>User ID: ${req.user.userId}</p>
     <p>Session ID: ${req.user.sessionId}</p>
     <a href='/me'>View Profile</a>
+    <a href='/user-info'>View User Info</a>
     <a href='/logout'>Logout this device</a>
     <a href='/logout-all'>Logout all devices</a>
     `);
@@ -195,6 +196,18 @@ app.get("/protected-check", async (req, res) => {
       message: "Protected call failed",
       error: err.response?.data || err.message,
     });
+  }
+});
+
+app.get("/user-info", ensureUpstreamSession, async (req, res) => {
+  const api = createApiClient(req);
+
+  try {
+    const response = await api.get("/user-info");
+    return res.json(response.data);
+  } catch (err) {
+    console.error("Error fetching user info:", err.message);
+    return res.status(500).json({ message: "Failed to fetch user info" });
   }
 });
 

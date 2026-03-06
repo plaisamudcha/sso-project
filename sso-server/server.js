@@ -473,6 +473,23 @@ app.get("/session-info", verifySession, async (req, res) => {
   });
 });
 
+app.get("/user-info", verifySession, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).lean();
+
+    if (!user) {
+      return res.status(401).json({ message: "User not found" });
+    }
+
+    return res.json({
+      sub: req.user.userId,
+      email: user.email,
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
 app.listen(envConfig.PORT, () => {
   console.log(`Server is running on port http://localhost:${envConfig.PORT}`);
 });

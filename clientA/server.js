@@ -72,6 +72,7 @@ app.get("/", ensureUpstreamSession, (req, res) => {
     <p>User ID: ${req.session.user.userId}</p>
     <p>Session ID: ${req.session.user.sessionId}</p>
     <a href='/profile'>View Profile</a>
+    <a href='/user-info'>View User Info</a>
     <a href='/logout'>Logout this device</a>
     <a href='/logout-all'>Logout all devices</a>
     `);
@@ -155,6 +156,18 @@ app.get("/profile", ensureUpstreamSession, async (req, res) => {
   }
 
   return res.json(req.session.user);
+});
+
+app.get("/user-info", ensureUpstreamSession, async (req, res) => {
+  const api = createApiClient(req);
+
+  try {
+    const response = await api.get("/user-info");
+    return res.json(response.data);
+  } catch (err) {
+    console.error("Error fetching user info:", err.message);
+    return res.status(500).json({ message: "Failed to fetch user info" });
+  }
 });
 
 app.get("/logout", async (req, res) => {
