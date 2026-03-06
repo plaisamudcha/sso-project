@@ -490,6 +490,25 @@ app.get("/user-info", verifySession, async (req, res) => {
   }
 });
 
+app.get("/.well-known/openid-configuration", (req, res) => {
+  const issuer = envConfig.ISSUER;
+
+  return res.json({
+    issuer,
+    authorization_endpoint: `${issuer}/authorize`,
+    token_endpoint: `${issuer}/token`,
+    userinfo_endpoint: `${issuer}/user-info`,
+    jwks_uri: `${issuer}/.well-known/jwks.json`,
+    reponse_types_supported: ["code"],
+    grant_types_supported: ["authorization_code", "refresh_token"],
+    subject_types_supported: ["public"],
+    id_token_signing_alg_values_supported: ["HS256"],
+    scopes_supported: ["openid", "profile", "email"],
+    token_endpoint_auth_methods_supported: ["client_secret_post", "none"],
+    claims_supported: ["sub", "email", "auth_time", "iss", "aud", "nonce"],
+  });
+});
+
 app.listen(envConfig.PORT, () => {
   console.log(`Server is running on port http://localhost:${envConfig.PORT}`);
 });
