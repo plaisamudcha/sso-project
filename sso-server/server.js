@@ -159,6 +159,8 @@ app.get("/authorize", async (req, res) => {
     redirect_uri,
   };
 
+  console.log("save session to redis", req.session.oauth);
+
   req.session.save(() => {
     res.render("login");
   });
@@ -197,6 +199,8 @@ app.post("/login", loginLimiter, async (req, res) => {
 
   delete req.session.oauth;
 
+  console.log("delete session from redis", req.session.oauth);
+
   res.redirect(`${redirect_uri}?code=${code}`);
 });
 
@@ -234,6 +238,13 @@ app.post("/token", tokenLimiter, async (req, res) => {
     getDeviceSessionKey(deviceType, deviceId),
   );
 
+  console.log(
+    "existingSessionId for device",
+    deviceType,
+    deviceId,
+    existingSessionId,
+  );
+
   // One account per device/browser: replacing any existing login on this device.
   if (existingSessionId) {
     await removeSessionById(existingSessionId);
@@ -256,12 +267,26 @@ app.post("/token", tokenLimiter, async (req, res) => {
     EX: SESSION_TTL_SECONDS,
   });
 
+  console.log("create session in redis", sessionData, `session:${sessionId}`);
+
   // เพิ่ม session เข้า userSessions
   await redis.sAdd(`userSessions:${authCode.userId}`, sessionId);
+
+  console.log(
+    "add session to userSessions set",
+    `userSessions:${authCode.userId}`,
+    sessionId,
+  );
 
   await redis.set(getDeviceSessionKey(deviceType, deviceId), sessionId, {
     EX: SESSION_TTL_SECONDS,
   });
+
+  console.log(
+    "set device session key",
+    getDeviceSessionKey(deviceType, deviceId),
+    sessionId,
+  );
 
   const accessToken = generateToken({
     userId: authCode.userId,

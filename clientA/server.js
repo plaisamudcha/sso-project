@@ -64,6 +64,8 @@ app.get("/callback", async (req, res) => {
       userId: parseJwt(accessToken).userId,
     };
 
+    console.log("user logged in", req.session.user);
+
     res.redirect("/");
   } catch (err) {
     res.send("login failed");
