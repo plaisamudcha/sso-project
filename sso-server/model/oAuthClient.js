@@ -11,8 +11,22 @@ const OAuthClientSchema = new mongoose.Schema({
     required: true,
   },
   name: String,
-
   redirectUris: [String],
+
+  // OIDC/OAuth metadata
+  allowedScopes: {
+    type: [String],
+    default: ["openid", "profile", "email"],
+  },
+  grantTypes: {
+    type: [String],
+    default: ["authorization_code", "refresh_token"],
+  },
+  tokenEndpointAuthMethod: {
+    type: String,
+    enum: ["client_secret_post", "none"],
+    default: "client_secret_post",
+  },
 
   createdAt: {
     type: Date,
