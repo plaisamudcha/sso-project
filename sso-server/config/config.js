@@ -10,6 +10,10 @@ const envConfig = {
   PORT: process.env.PORT,
   SSO_SECRET: process.env.SSO_SECRET,
   REDIS_URL: process.env.REDIS_URL,
+
+  // OIDC
+  ISSUER: process.env.ISSUER,
+  ID_TOKEN_SECRET: process.env.ID_TOKEN_SECRET,
 };
 
 module.exports = { envConfig };
