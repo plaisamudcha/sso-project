@@ -1,5 +1,6 @@
 const { envConfig } = require("../config/config");
 const jwt = require("jsonwebtoken");
+const { kid, privateKeyPem } = require("../config/oidcKeys");
 
 function generateToken(payload) {
   return jwt.sign(payload, envConfig.ACCESS_SECRET, { expiresIn: "15m" });
@@ -10,7 +11,11 @@ function generateRefreshToken(sessionId) {
 }
 
 function generateIdToken(payload) {
-  return jwt.sign(payload, envConfig.ID_TOKEN_SECRET, { expiresIn: "15m" });
+  return jwt.sign(payload, privateKeyPem, {
+    algorithm: "RS256",
+    expiresIn: "15m",
+    keyid: kid,
+  });
 }
 
 function verifyToken(token) {

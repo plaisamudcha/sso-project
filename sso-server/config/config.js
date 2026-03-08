@@ -9,7 +9,9 @@ const requiredEnvVars = [
   "SSO_SECRET",
   "REDIS_URL",
   "ISSUER",
-  "ID_TOKEN_SECRET",
+  "OIDC_PRIVATE_KEY_PATH",
+  "OIDC_PUBLIC_KEY_PATH",
+  "OIDC_KID",
 ];
 
 for (const key of requiredEnvVars) {
@@ -39,7 +41,9 @@ const envConfig = {
 
   // OIDC
   ISSUER: process.env.ISSUER,
-  ID_TOKEN_SECRET: process.env.ID_TOKEN_SECRET,
+  OIDC_PRIVATE_KEY_PATH: process.env.OIDC_PRIVATE_KEY_PATH,
+  OIDC_PUBLIC_KEY_PATH: process.env.OIDC_PUBLIC_KEY_PATH,
+  OIDC_KID: process.env.OIDC_KID,
 };
 
 module.exports = { envConfig };

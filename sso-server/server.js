@@ -37,6 +37,7 @@ const {
   createS256CodeChallenge,
   isValidCodeVerifier,
 } = require("./helper.js");
+const { jwks } = require("./config/oidcKeys.js");
 
 const app = express();
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
@@ -592,7 +593,7 @@ app.get("/user-info", verifySession, async (req, res) => {
   }
 });
 
-app.get("/.well-known/openid-configuration", (req, res) => {
+app.get("/.well-known/openid-configuration", (_req, res) => {
   const issuer = envConfig.ISSUER;
 
   return res.json({
@@ -610,6 +611,10 @@ app.get("/.well-known/openid-configuration", (req, res) => {
     token_endpoint_auth_methods_supported: ["client_secret_post", "none"],
     claims_supported: ["sub", "email", "auth_time", "iss", "aud", "nonce"],
   });
+});
+
+app.get("/.well-known/jwks.json", (_req, res) => {
+  res.json(jwks);
 });
 
 app.listen(envConfig.PORT, () => {
