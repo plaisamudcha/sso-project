@@ -24,11 +24,7 @@ const { verifySession, requireAdmin } = require("./midlleware/auth.js");
 const redis = require("./config/redis.js");
 const { RedisStore } = require("connect-redis");
 const redisClient = require("./config/redis.js");
-const {
-  loginLimiter,
-  tokenLimiter,
-  refreshLimiter,
-} = require("./midlleware/rateLimit.js");
+const { loginLimiter, tokenLimiter } = require("./midlleware/rateLimit.js");
 const {
   getDeviceSessionKey,
   removeSessionById,
@@ -509,56 +505,6 @@ app.post("/token", tokenLimiter, async (req, res) => {
   } catch (err) {
     console.error("/token error", err);
     return oauthError(res, 500, "server_error", "Internal Server Error");
-  }
-});
-
-app.post("/refresh", refreshLimiter, async (req, res) => {
-  try {
-    const { refreshToken } = req.body;
-    const payload = verifyRefreshToken(refreshToken);
-
-    const sessionRaw = await redis.get(`session:${payload.sessionId}`);
-    if (!sessionRaw) {
-      return res.status(401).json({ message: "Invalid session" });
-    }
-
-    const session = JSON.parse(sessionRaw);
-
-    if (session.refreshToken !== refreshToken) {
-      return res.status(401).json({ message: "Token mismatch" });
-    }
-
-    // rotate refresh token
-    const newRefreshToken = generateRefreshToken(payload.sessionId);
-
-    // สร้าง access token ใหม่
-    const newAccessToken = generateToken({
-      userId: session.userId,
-      sessionId: payload.sessionId,
-    });
-
-    session.refreshToken = newRefreshToken;
-
-    await redis.set(`session:${payload.sessionId}`, JSON.stringify(session), {
-      EX: SESSION_TTL_SECONDS,
-    });
-
-    if (session.deviceType && session.deviceId) {
-      await redis.set(
-        getDeviceSessionKey(session.deviceType, session.deviceId),
-        payload.sessionId,
-        { EX: SESSION_TTL_SECONDS },
-      );
-    }
-
-    res.json({
-      access_token: newAccessToken,
-      token_type: "Bearer",
-      expires_in: 15 * 60,
-      refresh_token: newRefreshToken,
-    });
-  } catch (err) {
-    return res.status(401).json({ message: "Invalid refresh token" });
   }
 });
 

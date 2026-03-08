@@ -8,8 +8,8 @@ const { v4: uuidv4 } = require("uuid");
 
 // Utilities
 const { createApiClient } = require("./services/apiClient");
-const { parseJwt } = require("./helper");
 const { envConfig } = require("./config");
+const { createPkcePair, parseJwt } = require("./helper");
 
 async function ensureUpstreamSession(req, res, next) {
   if (!req.session.user?.accessToken) {
@@ -80,11 +80,11 @@ app.get("/", ensureUpstreamSession, (req, res) => {
 
 app.get("/login", (req, res) => {
   const state = uuidv4();
-  const code_challenge = uuidv4();
+  const { challenge, verifier } = createPkcePair();
   req.session.oauthState = state;
-  req.session.codeChallenge = code_challenge;
+  req.session.pkceVerifier = verifier;
 
-  const url = `${envConfig.SSO_SERVER}/authorize?client_id=${envConfig.CLIENT_ID}&redirect_uri=${envConfig.REDIRECT_URI}&state=${state}&code_challenge=${code_challenge}&code_challenge_method=S256`;
+  const url = `${envConfig.SSO_SERVER}/authorize?client_id=${envConfig.CLIENT_ID}&redirect_uri=${envConfig.REDIRECT_URI}&state=${state}&code_challenge=${challenge}&code_challenge_method=S256`;
   req.session.save(() => {
     res.redirect(url);
   });
@@ -93,11 +93,11 @@ app.get("/login", (req, res) => {
 app.get("/login-oidc", (req, res) => {
   const state = uuidv4();
   const nonce = uuidv4();
-  const code_challenge = uuidv4();
+  const { challenge, verifier } = createPkcePair();
   req.session.oauthState = state;
   req.session.oauthNonce = nonce;
-  req.session.codeChallenge = code_challenge;
-  const url = `${envConfig.SSO_SERVER}/authorize?client_id=${envConfig.CLIENT_ID}&redirect_uri=${envConfig.REDIRECT_URI}&scope=openid&nonce=${nonce}&state=${state}&code_challenge=${code_challenge}&code_challenge_method=S256`;
+  req.session.pkceVerifier = verifier;
+  const url = `${envConfig.SSO_SERVER}/authorize?client_id=${envConfig.CLIENT_ID}&redirect_uri=${envConfig.REDIRECT_URI}&scope=openid&nonce=${nonce}&state=${state}&code_challenge=${challenge}&code_challenge_method=S256`;
   req.session.save(() => {
     res.redirect(url);
   });
@@ -124,7 +124,7 @@ app.get("/callback", async (req, res) => {
       redirect_uri: envConfig.REDIRECT_URI,
       deviceId: req.session.browserId,
       deviceType: "browser",
-      code_verifier: req.session.codeChallenge,
+      code_verifier: req.session.pkceVerifier,
     });
 
     console.log("Token response:", tokenResponse.data);

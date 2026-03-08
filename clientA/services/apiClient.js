@@ -27,12 +27,12 @@ function createApiClient(req) {
         try {
           error.config._retry = true;
 
-          const refreshRes = await axios.post(
-            `${envConfig.SSO_SERVER}/refresh`,
-            {
-              refreshToken: req.session.user.refreshToken,
-            },
-          );
+          const refreshRes = await axios.post(`${envConfig.SSO_SERVER}/token`, {
+            grant_type: "refresh_token",
+            refresh_token: req.session.user.refreshToken,
+            client_id: envConfig.CLIENT_ID,
+            client_secret: envConfig.CLIENT_SECRET,
+          });
 
           const { access_token, refresh_token } = refreshRes.data;
 

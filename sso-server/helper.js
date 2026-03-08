@@ -74,7 +74,9 @@ async function validateTokenClient(clientId, clientSecret) {
     }
 
     let validSecret = false;
-    const looksBcryptHash = /^\$2[aby]\$\d{2}$/.test(client.clientSecret || "");
+    const looksBcryptHash = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(
+      client.clientSecret || "",
+    );
 
     if (looksBcryptHash) {
       validSecret = await bcrypt.compare(clientSecret, client.clientSecret);

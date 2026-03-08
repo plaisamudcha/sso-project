@@ -16,9 +16,4 @@ const tokenLimiter = rateLimit({
   },
 });
 
-const refreshLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 60,
-});
-
 module.exports = { loginLimiter, tokenLimiter, refreshLimiter };
