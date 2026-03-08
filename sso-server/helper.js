@@ -1,5 +1,6 @@
 // Libraries
 const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
 
 // Utilities
 const redis = require("./config/redis");
@@ -72,7 +73,17 @@ async function validateTokenClient(clientId, clientSecret) {
       };
     }
 
-    if (clientSecret !== client.clientSecret) {
+    let validSecret = false;
+    const looksBcryptHash = /^\$2[aby]\$\d{2}$/.test(client.clientSecret || "");
+
+    if (looksBcryptHash) {
+      validSecret = await bcrypt.compare(clientSecret, client.clientSecret);
+    } else {
+      // รองรับข้อมูลเก่าแบบ plaintext ชั่วคราว
+      validSecret = clientSecret === client.clientSecret;
+    }
+
+    if (!validSecret) {
       return {
         error: {
           status: 401,

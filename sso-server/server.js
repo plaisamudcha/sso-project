@@ -20,7 +20,7 @@ const {
   generateIdToken,
   verifyRefreshToken,
 } = require("./services/tokenService.js");
-const { verifySession } = require("./midlleware/auth.js");
+const { verifySession, requireAdmin } = require("./midlleware/auth.js");
 const redis = require("./config/redis.js");
 const { RedisStore } = require("connect-redis");
 const redisClient = require("./config/redis.js");
@@ -88,36 +88,48 @@ app.post("/register", async (req, res) => {
   res.json({ message: "Register successfully" });
 });
 
-app.post("/register-oauth-client", async (req, res) => {
+app.post("/register-oauth-client", requireAdmin, async (req, res) => {
   const { name, redirectUris } = req.body;
 
-  if (!name || !redirectUris) {
+  if (!name || !Array.isArray(redirectUris) || redirectUris.length === 0) {
     return res.status(400).json({ message: "Invalid request" });
   }
 
-  if (!Array.isArray(redirectUris)) {
-    return res.status(400).json({ message: "redirectUris must be array" });
+  const normalizedRedirectUris = [
+    ...new Set(redirectUris.map((u) => String(u).trim()).filter(Boolean)),
+  ];
+
+  const invalidUri = normalizedRedirectUris.find(
+    (u) => !/^https?:\/\/.+/i.test(u),
+  );
+  if (invalidUri) {
+    return res
+      .status(400)
+      .json({ message: `Invalid redirect URI: ${invalidUri}` });
   }
 
   const clientId = crypto.randomUUID();
-  const clientSecret = crypto.randomBytes(32).toString("hex");
+  const rawClientSecret = crypto.randomBytes(32).toString("hex");
+  const hashedClientSecret = await bcrypt.hash(
+    rawClientSecret,
+    envConfig.SALT_ROUNDS,
+  );
 
   const client = await OAuthClient.create({
     name,
     clientId,
-    clientSecret,
-    redirectUris,
+    clientSecret: hashedClientSecret,
+    redirectUris: normalizedRedirectUris,
   });
 
   res.json({
     client_id: client.clientId,
-    client_secret: client.clientSecret,
+    client_secret: rawClientSecret, // แสดงครั้งเดียวตอนสร้าง
   });
 });
 
-app.get("/oauth-client", async (req, res) => {
-  const data = await OAuthClient.find();
-
+app.get("/oauth-client", requireAdmin, async (_req, res) => {
+  const data = await OAuthClient.find({}, { clientSecret: 0, __v: 0 }).lean();
   return res.status(200).json(data);
 });
 
@@ -606,7 +618,7 @@ app.get("/.well-known/openid-configuration", (_req, res) => {
     grant_types_supported: ["authorization_code", "refresh_token"],
     subject_types_supported: ["public"],
     code_challenge_methods_supported: ["S256"],
-    id_token_signing_alg_values_supported: ["HS256"],
+    id_token_signing_alg_values_supported: ["RS256"],
     scopes_supported: ["openid", "profile", "email"],
     token_endpoint_auth_methods_supported: ["client_secret_post", "none"],
     claims_supported: ["sub", "email", "auth_time", "iss", "aud", "nonce"],

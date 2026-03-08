@@ -12,6 +12,7 @@ const requiredEnvVars = [
   "OIDC_PRIVATE_KEY_PATH",
   "OIDC_PUBLIC_KEY_PATH",
   "OIDC_KID",
+  "ADMIN_API_KEY",
 ];
 
 for (const key of requiredEnvVars) {
@@ -44,6 +45,7 @@ const envConfig = {
   OIDC_PRIVATE_KEY_PATH: process.env.OIDC_PRIVATE_KEY_PATH,
   OIDC_PUBLIC_KEY_PATH: process.env.OIDC_PUBLIC_KEY_PATH,
   OIDC_KID: process.env.OIDC_KID,
+  ADMIN_API_KEY: process.env.ADMIN_API_KEY,
 };
 
 module.exports = { envConfig };

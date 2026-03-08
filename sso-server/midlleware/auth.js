@@ -42,4 +42,12 @@ async function verifySession(req, res, next) {
   }
 }
 
-module.exports = { authMiddleware, verifySession };
+function requireAdmin(req, res, next) {
+  const apiKey = req.headers["x-admin-api-key"];
+  if (!apiKey || apiKey !== envConfig.ADMIN_API_KEY) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  return next();
+}
+
+module.exports = { authMiddleware, verifySession, requireAdmin };
