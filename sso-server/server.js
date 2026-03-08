@@ -193,7 +193,15 @@ app.post("/login", loginLimiter, async (req, res) => {
     return res.status(400).send("Unauthorized flow");
   }
 
-  const { client_id, redirect_uri, state, scope, nonce } = req.session.oauth;
+  const {
+    client_id,
+    redirect_uri,
+    state,
+    scope,
+    nonce,
+    code_challenge,
+    code_challenge_method,
+  } = req.session.oauth;
 
   const client = await OAuthClient.findOne({ clientId: client_id });
 
@@ -214,6 +222,8 @@ app.post("/login", loginLimiter, async (req, res) => {
     userId: user._id,
     clientId: client_id,
     redirectUri: redirect_uri,
+    codeChallenge: code_challenge || null,
+    codeChallengeMethod: code_challenge_method || null,
     expiresAt: new Date(Date.now() + 5 * 60 * 1000),
 
     // OIDC context
