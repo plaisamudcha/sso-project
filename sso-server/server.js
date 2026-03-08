@@ -126,6 +126,8 @@ app.get("/authorize", async (req, res) => {
     response_type = "code",
     scope = "",
     nonce,
+    code_challenge,
+    code_challenge_method,
   } = req.query;
 
   if (!client_id || !redirect_uri) {
@@ -137,11 +139,20 @@ app.get("/authorize", async (req, res) => {
   }
 
   const client = await OAuthClient.findOne({ clientId: client_id });
+  const requirePkce = client.tokenEndpointAuthMethod === "none";
   if (!client) {
     return res.status(400).send("Invalid client");
   }
   if (!client.redirectUris.includes(redirect_uri)) {
     return res.status(400).send("Invalid redirect_uri");
+  }
+  if (requirePkce) {
+    if (!code_challenge) {
+      return res.status(400).send("Missing code_challenge");
+    }
+    if (code_challenge_method !== "S256") {
+      return res.status(400).send("Unsupported code_challenge_method");
+    }
   }
 
   const requestedScopes = String(scope).trim()
@@ -164,6 +175,8 @@ app.get("/authorize", async (req, res) => {
     state,
     scope: requestedScopes.join(" "),
     nonce: nonce || null,
+    code_challenge: code_challenge || nullj,
+    code_challenge_method: code_challenge_method || null,
   };
 
   console.log("save session to redis", req.session.oauth);
