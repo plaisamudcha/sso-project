@@ -16,4 +16,4 @@ const tokenLimiter = rateLimit({
   },
 });
 
-module.exports = { loginLimiter, tokenLimiter, refreshLimiter };
+module.exports = { loginLimiter, tokenLimiter };

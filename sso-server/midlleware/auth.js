@@ -1,6 +1,6 @@
 const { verifyToken } = require("../services/tokenService");
 const redis = require("../config/redis");
-const { envConfig } = require("../config");
+const { envConfig } = require("../config/config");
 
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(" ")[1];
