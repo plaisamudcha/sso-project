@@ -1,0 +1,33 @@
+sequenceDiagram
+  autonumber
+  participant C as ClientA / ClientB
+  participant API as Protected API
+  participant SSO as SSO Server
+  participant R as Redis
+
+  C->>API: Request with expired access_token
+  API-->>C: 401 Unauthorized
+
+  Note over C: Response interceptor starts refresh
+  C->>SSO: POST /token<br/>grant_type=refresh_token<br/>refresh_token, client_id, client_secret
+
+  SSO->>SSO: verifyRefreshToken(refresh_token)
+  SSO->>R: GET session:{sessionId}
+  SSO->>SSO: Validate token match + client_id match
+
+  SSO->>SSO: Generate new access_token + rotate refresh_token
+  SSO->>R: SET session:{sessionId} (new refreshToken, TTL)
+  alt session has device binding
+    SSO->>R: SET deviceSession:{deviceType}:{deviceId} = sessionId (TTL)
+  end
+
+  SSO-->>C: 200 {access_token, refresh_token, token_type, expires_in, scope}
+
+  Note over C: Update local session/token store
+  C->>API: Retry original request with new access_token
+  API-->>C: 200 OK
+
+  alt refresh failed
+    SSO-->>C: 400/401 invalid_grant or invalid_client
+    C->>C: Clear local session and force re-login
+  end

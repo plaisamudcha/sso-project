@@ -1,0 +1,28 @@
+sequenceDiagram
+  autonumber
+  actor U as User
+  participant C as ClientA / ClientB
+  participant SSO as SSO Server
+  participant R as Redis
+
+  U->>C: Click Logout All Devices
+  C->>SSO: POST /logout-all (Bearer access_token)
+
+  SSO->>SSO: verifySession(access_token)
+  SSO->>R: SMEMBERS userSessions:{userId}
+
+  loop for each sessionId in userSessions
+    SSO->>R: GET session:{sessionId}
+    SSO->>R: DEL session:{sessionId}
+    SSO->>R: SREM userSessions:{userId} sessionId
+    alt session has device binding
+      SSO->>R: DEL deviceSession:{deviceType}:{deviceId}
+    end
+  end
+
+  SSO->>R: DEL userSessions:{userId}
+  SSO-->>C: 200 {message: "global logout success"}
+
+  Note over C,SSO: Any device using old access_token now fails verifySession
+  C->>SSO: GET /session-info (token from another device)
+  SSO-->>C: 401 Unauthorized

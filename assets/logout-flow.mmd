@@ -1,0 +1,26 @@
+sequenceDiagram
+  autonumber
+  actor U as User
+  participant C as ClientA / ClientB
+  participant SSO as SSO Server
+  participant R as Redis
+
+  U->>C: Click Logout (this device)
+  C->>SSO: POST /logout (Bearer access_token)
+
+  SSO->>SSO: verifySession(access_token)
+  SSO->>R: GET session:{sessionId}
+  SSO->>R: SCARD userSessions:{userId}
+
+  SSO->>R: GET session:{sessionId} (for cleanup context)
+  SSO->>R: DEL session:{sessionId}
+  SSO->>R: SREM userSessions:{userId} sessionId
+  alt session has device binding
+    SSO->>R: DEL deviceSession:{deviceType}:{deviceId}
+  end
+
+  SSO-->>C: 200 {message: "logout success"}
+  C->>C: Destroy local session/cookies
+
+  C->>SSO: GET /session-info (old access_token)
+  SSO-->>C: 401 Session not found / Unauthorized

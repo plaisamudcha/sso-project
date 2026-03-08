@@ -1,0 +1,56 @@
+sequenceDiagram
+  autonumber
+  actor U as User
+  participant C as ClientA / ClientB
+  participant SSO as SSO Server
+  participant M as MongoDB
+  participant R as Redis
+
+  Note over C: /login = OAuth-only<br/>/login-oidc = OIDC (openid email)
+
+  U->>C: Click Login
+  C->>C: Generate state + PKCE (code_verifier/code_challenge)
+
+  alt OIDC login (/login-oidc)
+    C->>C: Generate nonce
+    C->>SSO: GET /authorize (scope=openid email, nonce, state, code_challenge, S256)
+  else OAuth-only login (/login)
+    C->>SSO: GET /authorize (state, code_challenge, S256)
+  end
+
+  SSO->>M: Validate client_id + redirect_uri
+  SSO->>R: Save req.session.oauth (client_id, redirect_uri, state, scope, nonce, PKCE)
+  SSO-->>U: Render login page
+
+  U->>SSO: POST /login (email, password)
+  SSO->>M: Verify user + create AuthCode (scope, nonce, PKCE, expiresAt)
+  SSO-->>U: 302 redirect_uri?code&state
+
+  U->>C: GET /callback?code&state
+  C->>C: Verify state
+  C->>SSO: POST /token (grant_type=authorization_code, code, client creds, redirect_uri, deviceId, deviceType, code_verifier)
+  SSO->>SSO: Validate client auth + code + PKCE + expiry
+  SSO->>R: Create session + deviceSession + userSessions
+
+  alt OIDC scope present
+    SSO-->>C: access_token + refresh_token + scope + id_token
+  else OAuth-only scope
+    SSO-->>C: access_token + refresh_token + scope
+  end
+
+  C->>SSO: GET /userinfo (Bearer access_token)
+  alt scope has openid
+    SSO-->>C: 200 { sub, email? }
+  else no openid scope
+    SSO-->>C: 403 insufficient_scope
+  end
+
+  C->>SSO: POST /token (grant_type=refresh_token, refresh_token, client creds)
+  SSO->>R: Verify session + rotate refresh token
+  SSO-->>C: new access_token + new refresh_token
+
+  C->>SSO: POST /logout (Bearer access_token)
+  SSO->>R: Remove session + device mapping + userSessions item
+  SSO-->>C: logout success
+
+  Note over C,SSO: OIDC metadata: /.well-known/openid-configuration<br/>JWKS: /.well-known/jwks.json (RS256)
