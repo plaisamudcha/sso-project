@@ -259,7 +259,7 @@ app.post("/token", tokenLimiter, async (req, res) => {
         return oauthError(res, 400, "invalid_request", "Invalid device type");
       }
 
-      if (!client.grantTypes?.inclides("autorization_code")) {
+      if (!client.grantTypes?.includes("authorization_code")) {
         return oauthError(
           res,
           400,
@@ -315,7 +315,7 @@ app.post("/token", tokenLimiter, async (req, res) => {
 
       const sessionData = {
         userId: authCode.userId.toString(),
-        clientId,
+        clientId: authCode.clientId,
         scope: authCode.scope || "",
         nonce: authCode.nonce || null,
         authtime: new Date(authCode.authTime || Date.now()).toISOString(),
@@ -340,7 +340,7 @@ app.post("/token", tokenLimiter, async (req, res) => {
         sessionId,
       });
 
-      const responsePaylaod = {
+      const responsePayload = {
         access_token: accessToken,
         token_type: "Bearer",
         expires_in: 15 * 60,
@@ -349,7 +349,7 @@ app.post("/token", tokenLimiter, async (req, res) => {
       };
 
       if (isOidc) {
-        responsePaylaod.id_token = generateIdToken({
+        responsePayload.id_token = generateIdToken({
           iss: envConfig.ISSUER,
           sub: authCode.userId.toString(),
           aud: client_id,
@@ -358,11 +358,10 @@ app.post("/token", tokenLimiter, async (req, res) => {
           ),
           ...(authCode.nonce ? { nonce: authCode.nonce } : {}),
         });
-
-        await AuthCode.deleteOne({ code });
-
-        return res.json(responsePaylaod);
       }
+
+      await AuthCode.deleteOne({ code });
+      return res.json(responsePayload);
     }
 
     if (grant_type === "refresh_token") {
@@ -409,7 +408,7 @@ app.post("/token", tokenLimiter, async (req, res) => {
       const newRefreshToken = generateRefreshToken(payload.sessionId);
       const newAccessToken = generateToken({
         userId: session.userId,
-        sessionId: paylaod.sessionId,
+        sessionId: payload.sessionId,
       });
 
       session.refreshToken = newRefreshToken;
@@ -421,7 +420,7 @@ app.post("/token", tokenLimiter, async (req, res) => {
       if (session.deviceType && session.deviceId) {
         await redis.set(
           getDeviceSessionKey(session.deviceType, session.deviceId),
-          paylaod.sessionId,
+          payload.sessionId,
           { EX: SESSION_TTL_SECONDS },
         );
       }
@@ -551,7 +550,7 @@ app.get("/.well-known/openid-configuration", (req, res) => {
     token_endpoint: `${issuer}/token`,
     userinfo_endpoint: `${issuer}/user-info`,
     jwks_uri: `${issuer}/.well-known/jwks.json`,
-    reponse_types_supported: ["code"],
+    response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     subject_types_supported: ["public"],
     id_token_signing_alg_values_supported: ["HS256"],

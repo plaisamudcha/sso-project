@@ -3,7 +3,7 @@ const redis = require("./config/redis");
 const oAuthClient = require("./model/oAuthClient");
 
 function getDeviceSessionKey(deviceType, deviceId) {
-  return `device-session:${deviceType}:${deviceId}`;
+  return `deviceSession:${deviceType}:${deviceId}`;
 }
 
 async function removeSessionById(sessionId) {
@@ -21,7 +21,7 @@ async function removeSessionById(sessionId) {
   await redis.del(`session:${sessionId}`);
 
   if (session?.userId) {
-    await redis.sRem(`useSession:${session.useId}`, sessionId);
+    await redis.sRem(`userSessions:${session.userId}`, sessionId);
   }
 
   if (session?.deviceType && session?.deviceId) {
