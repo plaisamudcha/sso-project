@@ -88,8 +88,6 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(preparePkce);
-
 app.use(passport.initialize());
 app.use(passport.session());
 
@@ -149,10 +147,11 @@ app.get("/", ensureUpstreamSession, (req, res) => {
     `);
 });
 
-app.get("/login", passport.authenticate("sso"));
+app.get("/login", preparePkce, passport.authenticate("sso"));
 
 app.get(
   "/login-oidc",
+  preparePkce,
   (req, res, next) => {
     req.session.oidcNonce = uuidv4();
     next();

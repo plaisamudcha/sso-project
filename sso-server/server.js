@@ -35,6 +35,7 @@ const {
   oauthError,
   validateTokenClient,
   createS256CodeChallenge,
+  isValidCodeVerifier,
 } = require("./helper.js");
 
 const app = express();
@@ -140,13 +141,13 @@ app.get("/authorize", async (req, res) => {
   }
 
   const client = await OAuthClient.findOne({ clientId: client_id });
-  const requirePkce = client.tokenEndpointAuthMethod === "none";
   if (!client) {
     return res.status(400).send("Invalid client");
   }
   if (!client.redirectUris.includes(redirect_uri)) {
     return res.status(400).send("Invalid redirect_uri");
   }
+  const requirePkce = client.tokenEndpointAuthMethod === "none";
   if (requirePkce) {
     if (!code_challenge) {
       return res.status(400).send("Missing code_challenge");
@@ -176,7 +177,7 @@ app.get("/authorize", async (req, res) => {
     state,
     scope: requestedScopes.join(" "),
     nonce: nonce || null,
-    code_challenge: code_challenge || nullj,
+    code_challenge: code_challenge || null,
     code_challenge_method: code_challenge_method || null,
   };
 
@@ -368,7 +369,7 @@ app.post("/token", tokenLimiter, async (req, res) => {
         clientId: authCode.clientId,
         scope: authCode.scope || "",
         nonce: authCode.nonce || null,
-        authtime: new Date(authCode.authTime || Date.now()).toISOString(),
+        authTime: new Date(authCode.authTime || Date.now()).toISOString(),
         deviceId,
         deviceType,
         refreshToken,
