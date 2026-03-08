@@ -34,6 +34,7 @@ const {
   removeSessionById,
   oauthError,
   validateTokenClient,
+  createS256CodeChallenge,
 } = require("./helper.js");
 
 const app = express();
@@ -259,6 +260,7 @@ app.post("/token", tokenLimiter, async (req, res) => {
       redirect_uri,
       grant_type,
       refresh_token,
+      code_verifier,
     } = req.body;
 
     if (!grant_type) {
@@ -320,6 +322,31 @@ app.post("/token", tokenLimiter, async (req, res) => {
           "invalid_grant",
           "Authorization code expired",
         );
+      }
+
+      if (authCode.codeChallenge) {
+        if (!isValidCodeVerifier(code_verifier)) {
+          return oauthError(
+            res,
+            400,
+            "invalid_request",
+            "Missing/invalid code_verifier",
+          );
+        }
+
+        if (authCode.codeChallengeMethod !== "S256") {
+          return oauthError(
+            res,
+            400,
+            "invalid_grant",
+            "Unsupported code challenge method",
+          );
+        }
+
+        const computedChallenge = createS256CodeChallenge(code_verifier);
+        if (computedChallenge !== authCode.codeChallenge) {
+          return oauthError(res, 400, "invalid_grant", "Invalid code_verifier");
+        }
       }
 
       const grantedScopes = (authCode.scope || "").split(/\s+/).filter(Boolean);
@@ -576,6 +603,7 @@ app.get("/.well-known/openid-configuration", (req, res) => {
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     subject_types_supported: ["public"],
+    code_challenge_methods_supported: ["S256"],
     id_token_signing_alg_values_supported: ["HS256"],
     scopes_supported: ["openid", "profile", "email"],
     token_endpoint_auth_methods_supported: ["client_secret_post", "none"],
