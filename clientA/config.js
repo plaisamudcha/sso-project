@@ -3,6 +3,7 @@ const dotenv = require("dotenv");
 dotenv.config();
 
 const envConfig = {
+  NODE_ENV: process.env.NODE_ENV || "development",
   APP_SESSION_SECRET: process.env.APP_SESSION_SECRET,
   CLIENT_SECRET: process.env.CLIENT_SECRET,
   CLIENT_ID: process.env.CLIENT_ID,

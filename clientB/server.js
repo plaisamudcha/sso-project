@@ -76,9 +76,9 @@ app.disable("x-powered-by");
 
 app.use(
   session({
-    name: "sso.sid",
+    name: "clientB.sid",
     store: new RedisStore({ client: redisClient }),
-    secret: envConfig.SSO_SECRET,
+    secret: envConfig.APP_SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -164,7 +164,7 @@ app.get(
     req.session.oidcNonce = uuidv4();
     next();
   },
-  passport.authenticate("sso", { scope: "openid" }),
+  passport.authenticate("sso", { scope: "openid email" }),
 );
 
 app.get(
@@ -208,11 +208,14 @@ app.get("/user-info", ensureUpstreamSession, async (req, res) => {
   const api = createApiClient(req);
 
   try {
-    const response = await api.get("/user-info");
+    const response = await api.get("/userinfo");
     return res.json(response.data);
   } catch (err) {
-    console.error("Error fetching user info:", err.message);
-    return res.status(500).json({ message: "Failed to fetch user info" });
+    const upstream = err.response?.data || err.message;
+    console.error("Error fetching user info:", upstream);
+    return res
+      .status(err.response?.status || 500)
+      .json({ message: "Failed to fetch user info", error: upstream });
   }
 });
 

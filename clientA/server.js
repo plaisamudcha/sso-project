@@ -40,9 +40,9 @@ app.disable("x-powered-by");
 
 app.use(
   session({
-    name: "sso.sid",
+    name: "clientA.sid",
     store: new RedisStore({ client: redisClient }),
-    secret: envConfig.SSO_SECRET,
+    secret: envConfig.APP_SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -88,7 +88,15 @@ app.get("/login", (req, res) => {
   req.session.oauthState = state;
   req.session.pkceVerifier = verifier;
 
-  const url = `${envConfig.SSO_SERVER}/authorize?client_id=${envConfig.CLIENT_ID}&redirect_uri=${envConfig.REDIRECT_URI}&state=${state}&code_challenge=${challenge}&code_challenge_method=S256`;
+  const params = new URLSearchParams({
+    client_id: envConfig.CLIENT_ID,
+    redirect_uri: envConfig.REDIRECT_URI,
+    response_type: "code",
+    state,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+  });
+  const url = `${envConfig.SSO_SERVER}/authorize?${params.toString()}`;
   req.session.save(() => {
     res.redirect(url);
   });
@@ -101,7 +109,17 @@ app.get("/login-oidc", (req, res) => {
   req.session.oauthState = state;
   req.session.oauthNonce = nonce;
   req.session.pkceVerifier = verifier;
-  const url = `${envConfig.SSO_SERVER}/authorize?client_id=${envConfig.CLIENT_ID}&redirect_uri=${envConfig.REDIRECT_URI}&scope=openid&nonce=${nonce}&state=${state}&code_challenge=${challenge}&code_challenge_method=S256`;
+  const params = new URLSearchParams({
+    client_id: envConfig.CLIENT_ID,
+    redirect_uri: envConfig.REDIRECT_URI,
+    response_type: "code",
+    scope: "openid email",
+    nonce,
+    state,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+  });
+  const url = `${envConfig.SSO_SERVER}/authorize?${params.toString()}`;
   req.session.save(() => {
     res.redirect(url);
   });
@@ -179,11 +197,14 @@ app.get("/user-info", ensureUpstreamSession, async (req, res) => {
   const api = createApiClient(req);
 
   try {
-    const response = await api.get("/user-info");
+    const response = await api.get("/userinfo");
     return res.json(response.data);
   } catch (err) {
-    console.error("Error fetching user info:", err.message);
-    return res.status(500).json({ message: "Failed to fetch user info" });
+    const upstream = err.response?.data || err.message;
+    console.error("Error fetching user info:", upstream);
+    return res
+      .status(err.response?.status || 500)
+      .json({ message: "Failed to fetch user info", error: upstream });
   }
 });
 
