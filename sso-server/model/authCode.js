@@ -20,6 +20,15 @@ const authCodeSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+  codeChallenge: {
+    type: String,
+    default: null,
+  },
+  codeChallengeMethod: {
+    type: String,
+    enum: ["S256", null],
+    default: null,
+  },
 });
 
 module.exports = mongoose.model("AuthCode", authCodeSchema);

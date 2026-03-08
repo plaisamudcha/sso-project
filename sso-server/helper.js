@@ -1,3 +1,6 @@
+// Libraries
+const crypto = require("crypto");
+
 // Utilities
 const redis = require("./config/redis");
 const oAuthClient = require("./model/oAuthClient");
@@ -83,9 +86,30 @@ async function validateTokenClient(clientId, clientSecret) {
   return { client };
 }
 
+function base64url(buffer) {
+  return buffer
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function isValidCodeVerifier(verifier) {
+  return (
+    typeof verifier === "string" && /^[A-Za-z0-9._~-]{43,128}$/.test(verifier)
+  );
+}
+
+function createS256CodeChallenge(verifier) {
+  return base64url(crypto.createHash("sha256").update(verifier).digest());
+}
+
 module.exports = {
   getDeviceSessionKey,
   removeSessionById,
   oauthError,
   validateTokenClient,
+  base64url,
+  isValidCodeVerifier,
+  createS256CodeChallenge,
 };
