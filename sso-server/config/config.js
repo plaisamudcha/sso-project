@@ -19,7 +19,7 @@ for (const key of requiredEnvVars) {
 }
 
 const saltRounds = Number(process.env.SALT_ROUNDS);
-if (!Number.isInterger(saltRounds) || saltRounds <= 0) {
+if (!Number.isInteger(saltRounds) || saltRounds <= 0) {
   throw new Error("SALT_ROUNDS must be a positive integer.");
 }
 
