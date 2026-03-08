@@ -70,14 +70,22 @@ const redisClient = createClient({
 
 redisClient.connect().catch(console.error);
 
+const isProd = envConfig.NODE_ENV === "production";
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
+
 app.use(
   session({
-    name: "clientB.sid",
+    name: "sso.sid",
     store: new RedisStore({ client: redisClient }),
-    secret: envConfig.APP_SESSION_SECRET,
+    secret: envConfig.SSO_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: false, httpOnly: true },
+    cookie: {
+      secure: isProd,
+      sameSite: isProd ? "none" : "lax",
+      httpOnly: true,
+    },
   }),
 );
 

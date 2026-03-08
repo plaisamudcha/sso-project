@@ -48,6 +48,10 @@ app.use(
   }),
 );
 
+const isProd = envConfig.NODE_ENV === "production";
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
+
 app.use(
   session({
     name: "sso.sid",
@@ -56,7 +60,8 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: false,
+      secure: isProd,
+      sameSite: isProd ? "none" : "lax",
       httpOnly: true,
     },
   }),
@@ -421,6 +426,9 @@ app.post("/token", tokenLimiter, async (req, res) => {
       }
 
       await AuthCode.deleteOne({ code });
+
+      res.set("Cache-Control", "no-store");
+      res.set("Pragma", "no-cache");
       return res.json(responsePayload);
     }
 
@@ -493,6 +501,8 @@ app.post("/token", tokenLimiter, async (req, res) => {
         scope: session.scope || "",
       };
 
+      res.set("Cache-Control", "no-store");
+      res.set("Pragma", "no-cache");
       return res.json(responsePayload);
     }
 
@@ -534,21 +544,40 @@ app.get("/session-info", verifySession, async (req, res) => {
   });
 });
 
-app.get("/user-info", verifySession, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.userId).lean();
+app.get("/userinfo", verifySession, async (req, res) => {
+  const [user, sessionRaw] = await Promise.all([
+    User.findById(req.user.userId).lean(),
+    redis.get(`session:${req.user.sessionId}`),
+  ]);
 
-    if (!user) {
-      return res.status(401).json({ message: "User not found" });
-    }
-
-    return res.json({
-      sub: req.user.userId,
-      email: user.email,
-    });
-  } catch (err) {
-    return res.status(500).json({ message: "Server error" });
+  if (!user || !sessionRaw) {
+    return res.status(401).json({ message: "Unauthorized" });
   }
+
+  const session = JSON.parse(sessionRaw);
+  const scopes = new Set(
+    String(session.scope || "")
+      .split(/\s+/)
+      .filter(Boolean),
+  );
+
+  if (!scopes.has("openid")) {
+    return res.status(403).json({
+      error: "insufficient_scope",
+      error_description: "openid scope is required",
+    });
+  }
+
+  const claims = { sub: req.user.userId };
+  if (scopes.has("email")) claims.email = user.email;
+
+  return res.json(claims);
+});
+
+// backward compatibility
+app.get("/user-info", verifySession, (req, res, next) => {
+  req.url = "/userinfo";
+  next();
 });
 
 app.get("/.well-known/openid-configuration", (_req, res) => {
@@ -558,7 +587,7 @@ app.get("/.well-known/openid-configuration", (_req, res) => {
     issuer,
     authorization_endpoint: `${issuer}/authorize`,
     token_endpoint: `${issuer}/token`,
-    userinfo_endpoint: `${issuer}/user-info`,
+    userinfo_endpoint: `${issuer}/userinfo`,
     jwks_uri: `${issuer}/.well-known/jwks.json`,
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],

@@ -13,6 +13,8 @@ const requiredEnvVars = [
   "OIDC_PUBLIC_KEY_PATH",
   "OIDC_KID",
   "ADMIN_API_KEY",
+  "NODE_ENV",
+  "PORT",
 ];
 
 for (const key of requiredEnvVars) {
@@ -39,6 +41,7 @@ const envConfig = {
   PORT: port,
   SSO_SECRET: process.env.SSO_SECRET,
   REDIS_URL: process.env.REDIS_URL,
+  NODE_ENV: process.env.NODE_ENV,
 
   // OIDC
   ISSUER: process.env.ISSUER,
