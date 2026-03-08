@@ -11,34 +11,23 @@ const { v4: uuidv4 } = require("uuid");
 // Utilities
 const envConfig = require("./config");
 const { createApiClient } = require("./services/apiClient");
-
-function destroyLocalSession(req, res, redirectPath = "/") {
-  req.logout(() => {
-    req.session.destroy(() => {
-      res.redirect(redirectPath);
-    });
-  });
-}
-
-async function ensureUpstreamSession(req, res, next) {
-  if (!req.isAuthenticated || !req.isAuthenticated()) {
-    return next();
-  }
-
-  const api = createApiClient(req);
-
-  try {
-    await api.get("/session-info");
-    return next();
-  } catch {
-    return destroyLocalSession(req, res);
-  }
-}
+const {
+  base64Url,
+  createPkcePair,
+  preparePkce,
+  destroyLocalSession,
+  ensureUpstreamSession,
+} = require("./helper");
 
 class DeviceAwareOAuth2Strategy extends OAuth2Strategy {
   authenticate(req, options = {}) {
     options.deviceId = req.session.browserId;
     options.deviceType = "browser";
+
+    // PKCE from session
+    options.codeVerifier = req.session.pkceVerifier;
+    options.codeChallenge = req.session.pkceChallenge;
+    options.codeChallengeMethod = "S256";
 
     // if OIDC login, add scope and nonce
     if (String(options.scope || "").includes("openid")) {
@@ -54,11 +43,18 @@ class DeviceAwareOAuth2Strategy extends OAuth2Strategy {
       params.nonce = options.nonce;
     }
 
+    if (options.codeChallenge) {
+      params.code_challenge = options.codeChallenge;
+      params.code_challenge_method = options.codeChallengeMethod || "S256";
+    }
+
     return params;
   }
 
   tokenParams(options) {
     return {
+      grant_type: "authorization_code",
+      code_verifier: options.codeVerifier,
       deviceId: options.deviceId,
       deviceType: options.deviceType,
       client_id: envConfig.CLIENT_ID,
@@ -91,6 +87,8 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+app.use(preparePkce);
 
 app.use(passport.initialize());
 app.use(passport.session());
