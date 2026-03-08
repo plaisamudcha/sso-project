@@ -118,6 +118,7 @@ app.get("/callback", async (req, res) => {
 
   try {
     const tokenResponse = await axios.post(`${envConfig.SSO_SERVER}/token`, {
+      grant_type: "authorization_code",
       code,
       client_id: envConfig.CLIENT_ID,
       client_secret: envConfig.CLIENT_SECRET,
@@ -148,9 +149,17 @@ app.get("/callback", async (req, res) => {
       sessionId: tokenPayload.sessionId,
     };
 
+    // PKCE/nonce are one-time values per auth attempt.
+    delete req.session.pkceVerifier;
+    delete req.session.oauthNonce;
+
     res.redirect("/");
   } catch (err) {
-    res.send("login failed");
+    console.error(
+      "clientA token exchange failed:",
+      err.response?.data || err.message,
+    );
+    res.status(401).send("login failed");
   }
 });
 
