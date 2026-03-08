@@ -29,37 +29,16 @@ const {
   tokenLimiter,
   refreshLimiter,
 } = require("./midlleware/rateLimit.js");
+const {
+  getDeviceSessionKey,
+  removeSessionById,
+  oauthError,
+  validateTokenClient,
+} = require("./helper.js");
 
 const app = express();
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const SUPPORTED_DEVICE_TYPES = new Set(["mobile", "browser"]);
-
-function getDeviceSessionKey(deviceType, deviceId) {
-  return `deviceSession:${deviceType}:${deviceId}`;
-}
-
-async function removeSessionById(sessionId) {
-  const sessionRaw = await redis.get(`session:${sessionId}`);
-  let session;
-
-  if (sessionRaw) {
-    try {
-      session = JSON.parse(sessionRaw);
-    } catch {
-      session = null;
-    }
-  }
-
-  await redis.del(`session:${sessionId}`);
-
-  if (session?.userId) {
-    await redis.sRem(`userSessions:${session.userId}`, sessionId);
-  }
-
-  if (session?.deviceType && session?.deviceId) {
-    await redis.del(getDeviceSessionKey(session.deviceType, session.deviceId));
-  }
-}
 
 app.use(express.json());
 app.use(
@@ -247,154 +226,227 @@ app.post("/login", loginLimiter, async (req, res) => {
 });
 
 app.post("/token", tokenLimiter, async (req, res) => {
-  const { code, deviceId, deviceType, client_id, client_secret, redirect_uri } =
-    req.body;
+  try {
+    const {
+      code,
+      deviceId,
+      deviceType,
+      client_id,
+      client_secret,
+      redirect_uri,
+      grant_type,
+      refresh_token,
+    } = req.body;
 
-  if (
-    !code ||
-    !client_id ||
-    !client_secret ||
-    !redirect_uri ||
-    !deviceId ||
-    !deviceType
-  ) {
-    return res.status(400).json({ message: "Missing parameters" });
-  }
-
-  if (!SUPPORTED_DEVICE_TYPES.has(deviceType)) {
-    return res.status(400).json({ message: "Invalid device type" });
-  }
-
-  const authCode = await AuthCode.findOne({ code });
-  if (!authCode) {
-    return res.status(400).json({ message: "Invalid code" });
-  }
-  if (
-    authCode.clientId !== client_id ||
-    authCode.redirectUri !== redirect_uri
-  ) {
-    return res.status(401).json({ message: "Invalid authorization code" });
-  }
-  if (authCode.expiresAt < new Date()) {
-    return res.status(400).json({ message: "Code expired" });
-  }
-
-  const grantedScopes = (authCode.scope || "").split(/\s+/).filter(Boolean);
-  const isOidc = grantedScopes.includes("openid");
-
-  let idToken;
-  if (isOidc) {
-    idToken = generateIdToken({
-      iss: envConfig.ISSUER,
-      sub: authCode.userId.toString(),
-      aud: client_id,
-      auth_time: Math.floor(
-        new Date(authCode.authTime || Date.now()).getTime() / 1000,
-      ),
-      ...(authCode.nonce ? { nonce: authCode.nonce } : {}),
-    });
-  }
-
-  const client = await OAuthClient.findOne({ clientId: client_id });
-  if (!client || !client.redirectUris.includes(redirect_uri)) {
-    return res.status(401).json({ message: "Invalid Client" });
-  }
-
-  if (!client.grantTypes?.includes("authorization_code")) {
-    return res
-      .status(401)
-      .json({ message: "Client not allowed for authorization_code grant" });
-  }
-
-  if (client.tokenEndpointAuthMethod === "client_secret_post") {
-    if (!client_secret) {
-      return res.status(401).json({ message: "Missing client_secret" });
+    if (!grant_type) {
+      return oauthError(res, 400, "invalid_request", "Missing grant_type");
     }
 
-    if (client_secret !== client.clientSecret) {
-      return res.status(401).json({ message: "Invalid client credentials" });
+    const { client, error } = await validateTokenClient(
+      client_id,
+      client_secret,
+    );
+    if (error) {
+      return oauthError(res, error.status, error.code, error.description);
     }
+
+    if (grant_type === "authorization_code") {
+      if (!code || !redirect_uri || !deviceId || !deviceType) {
+        return oauthError(res, 400, "invalid_request", "Missing parameters");
+      }
+
+      if (!SUPPORTED_DEVICE_TYPES.has(deviceType)) {
+        return oauthError(res, 400, "invalid_request", "Invalid device type");
+      }
+
+      if (!client.grantTypes?.inclides("autorization_code")) {
+        return oauthError(
+          res,
+          400,
+          "unauthorized_client",
+          "Client not allowed for this grant type",
+        );
+      }
+
+      const authCode = await AuthCode.findOne({ code });
+      if (!authCode) {
+        return oauthError(
+          res,
+          400,
+          "invalid_grant",
+          "Invalid authorization code",
+        );
+      }
+
+      if (
+        authCode.clientId !== client_id ||
+        authCode.redirectUri !== redirect_uri
+      ) {
+        return oauthError(
+          res,
+          400,
+          "invalid_grant",
+          "Authorization code mismatch",
+        );
+      }
+
+      if (authCode.expiresAt < new Date()) {
+        return oauthError(
+          res,
+          400,
+          "invalid_grant",
+          "Authorization code expired",
+        );
+      }
+
+      const grantedScopes = (authCode.scope || "").split(/\s+/).filter(Boolean);
+      const isOidc = grantedScopes.includes("openid");
+
+      const existingSessionId = await redis.get(
+        getDeviceSessionKey(deviceType, deviceId),
+      );
+
+      if (existingSessionId) {
+        await removeSessionById(existingSessionId);
+      }
+
+      const sessionId = uuidv4();
+      const refreshToken = generateRefreshToken(sessionId);
+
+      const sessionData = {
+        userId: authCode.userId.toString(),
+        clientId,
+        scope: authCode.scope || "",
+        nonce: authCode.nonce || null,
+        authtime: new Date(authCode.authTime || Date.now()).toISOString(),
+        deviceId,
+        deviceType,
+        refreshToken,
+        isActive: true,
+      };
+
+      await redis.set(`session:${sessionId}`, JSON.stringify(sessionData), {
+        EX: SESSION_TTL_SECONDS,
+      });
+
+      await redis.sAdd(`userSessions:${authCode.userId}`, sessionId);
+
+      await redis.set(getDeviceSessionKey(deviceType, deviceId), sessionId, {
+        EX: SESSION_TTL_SECONDS,
+      });
+
+      const accessToken = generateToken({
+        userId: authCode.userId,
+        sessionId,
+      });
+
+      const responsePaylaod = {
+        access_token: accessToken,
+        token_type: "Bearer",
+        expires_in: 15 * 60,
+        refresh_token: refreshToken,
+        scope: sessionData.scope,
+      };
+
+      if (isOidc) {
+        responsePaylaod.id_token = generateIdToken({
+          iss: envConfig.ISSUER,
+          sub: authCode.userId.toString(),
+          aud: client_id,
+          auth_time: Math.floor(
+            new Date(authCode.authTime || Date.now()).getTime() / 1000,
+          ),
+          ...(authCode.nonce ? { nonce: authCode.nonce } : {}),
+        });
+
+        await AuthCode.deleteOne({ code });
+
+        return res.json(responsePaylaod);
+      }
+    }
+
+    if (grant_type === "refresh_token") {
+      if (!client.grantTypes?.includes("refresh_token")) {
+        return oauthError(
+          res,
+          400,
+          "unauthorized_client",
+          "Client not allowed for refresh_token grant",
+        );
+      }
+
+      if (!refresh_token) {
+        return oauthError(res, 400, "invalid_request", "Missing refresh_token");
+      }
+
+      let payload;
+      try {
+        payload = verifyRefreshToken(refresh_token);
+      } catch {
+        return oauthError(res, 400, "invalid_grant", "Invalid refresh token");
+      }
+
+      const sessionRaw = await redis.get(`session:${payload.sessionId}`);
+      if (!sessionRaw) {
+        return oauthError(res, 400, "invalid_grant", "Session not found");
+      }
+
+      const session = JSON.parse(sessionRaw);
+
+      if (session.refreshToken !== refresh_token) {
+        return oauthError(res, 400, "invalid_grant", "Refresh token mismatch");
+      }
+
+      if (session.clientId !== client_id) {
+        return oauthError(
+          res,
+          400,
+          "invalid_grant",
+          "Refresh token client mismatch",
+        );
+      }
+
+      const newRefreshToken = generateRefreshToken(payload.sessionId);
+      const newAccessToken = generateToken({
+        userId: session.userId,
+        sessionId: paylaod.sessionId,
+      });
+
+      session.refreshToken = newRefreshToken;
+
+      await redis.set(`session:${payload.sessionId}`, JSON.stringify(session), {
+        EX: SESSION_TTL_SECONDS,
+      });
+
+      if (session.deviceType && session.deviceId) {
+        await redis.set(
+          getDeviceSessionKey(session.deviceType, session.deviceId),
+          paylaod.sessionId,
+          { EX: SESSION_TTL_SECONDS },
+        );
+      }
+
+      const responsePayload = {
+        access_token: newAccessToken,
+        token_type: "Bearer",
+        expires_in: 15 * 60,
+        refresh_token: newRefreshToken,
+        scope: session.scope || "",
+      };
+
+      return res.json(responsePayload);
+    }
+
+    return oauthError(
+      res,
+      400,
+      "unsupported_grant_type",
+      "Supported grant_type: authorization_code, refresh_token",
+    );
+  } catch (err) {
+    console.error("/token error", err);
+    return oauthError(res, 500, "server_error", "Internal Server Error");
   }
-
-  const existingSessionId = await redis.get(
-    getDeviceSessionKey(deviceType, deviceId),
-  );
-
-  console.log(
-    "existingSessionId for device",
-    deviceType,
-    deviceId,
-    existingSessionId,
-  );
-
-  // One account per device/browser: replacing any existing login on this device.
-  if (existingSessionId) {
-    await removeSessionById(existingSessionId);
-  }
-
-  const sessionId = uuidv4();
-
-  const refreshToken = generateRefreshToken(sessionId);
-
-  const sessionData = {
-    userId: authCode.userId.toString(),
-    deviceId,
-    deviceType,
-    refreshToken,
-    isActive: true,
-  };
-
-  // เก็บ session พร้อม TTL 7 วัน
-  await redis.set(`session:${sessionId}`, JSON.stringify(sessionData), {
-    EX: SESSION_TTL_SECONDS,
-  });
-
-  console.log("create session in redis", sessionData, `session:${sessionId}`);
-
-  // เพิ่ม session เข้า userSessions
-  await redis.sAdd(`userSessions:${authCode.userId}`, sessionId);
-
-  console.log(
-    "add session to userSessions set",
-    `userSessions:${authCode.userId}`,
-    sessionId,
-  );
-
-  console.log(
-    "userSession",
-    await redis.sMembers(`userSessions:${authCode.userId}`),
-  );
-
-  await redis.set(getDeviceSessionKey(deviceType, deviceId), sessionId, {
-    EX: SESSION_TTL_SECONDS,
-  });
-
-  console.log(
-    "set device session key",
-    getDeviceSessionKey(deviceType, deviceId),
-    sessionId,
-  );
-
-  const accessToken = generateToken({
-    userId: authCode.userId,
-    sessionId,
-  });
-
-  const responsePayload = {
-    access_token: accessToken,
-    token_type: "Bearer",
-    expires_in: 15 * 60,
-    refresh_token: refreshToken,
-  };
-
-  if (isOidc) {
-    responsePayload.id_token = idToken;
-    responsePayload.scope = authCode.scope || "openid";
-  }
-
-  await AuthCode.deleteOne({ code });
-
-  res.json(responsePayload);
 });
 
 app.post("/refresh", refreshLimiter, async (req, res) => {
