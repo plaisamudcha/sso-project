@@ -151,6 +151,16 @@ app.post("/register-oauth-client", requireAdmin, async (req, res) => {
       .json({ message: "authorization_code grant is required" });
   }
 
+  if (
+    tokenEndpointAuthMethod === "none" &&
+    normalizedGrantTypes.includes("refresh_token")
+  ) {
+    return res.status(400).json({
+      message:
+        "refresh_token grant is not allowed for public clients (tokenEndpointAuthMethod=none)",
+    });
+  }
+
   const clientId = crypto.randomUUID();
   let rawClientSecret = null;
   let hashedClientSecret = null;
@@ -485,6 +495,15 @@ app.post("/token", tokenLimiter, async (req, res) => {
     }
 
     if (grant_type === "refresh_token") {
+      if (client.tokenEndpointAuthMethod === "none") {
+        return oauthError(
+          res,
+          400,
+          "unauthorized_client",
+          "refresh_token grant is not allowed for public clients",
+        );
+      }
+
       if (!client.grantTypes?.includes("refresh_token")) {
         return oauthError(
           res,
