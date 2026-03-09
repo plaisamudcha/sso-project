@@ -162,7 +162,7 @@ app.get('/callback', async (req, res) => {
 
     return res.redirect('/');
   } catch (err) {
-    console.error('clientB callback error:', err.response?.data || err.message);
+    console.error('clientC callback error:', err.response?.data || err.message);
     return res.status(500).send("Authentication failed");
   }
 })

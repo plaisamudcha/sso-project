@@ -1,7 +1,11 @@
 const envConfig = require('./config');
+const crypto = require('crypto');
+const axios = require('axios');
+const jwt = require('jsonwebtoken');
 
 let openIdClientLib;
 let oidcConfigPromise;
+const jwksCache = new Map();
 
 async function getOpenIdClientLib() {
   if (!openIdClientLib) {
@@ -14,11 +18,25 @@ async function getOidcConfig() {
   if (!oidcConfigPromise) {
     oidcConfigPromise = (async () => {
       const client = await getOpenIdClientLib();
-      return client.discovery(
+      const discoveryOptions =
+        envConfig.NODE_ENV === "production"
+          ? undefined
+          : { execute: [client.allowInsecureRequests] };
+
+      const config = await client.discovery(
         new URL(envConfig.SSO_SERVER),
         envConfig.CLIENT_ID,
         envConfig.CLIENT_SECRET,
+        undefined,
+        discoveryOptions,
       );
+
+      // Keep HTTP disabled in production. Allow local http:// issuer only in dev.
+      if (envConfig.NODE_ENV !== "production") {
+        client.allowInsecureRequests(config);
+      }
+
+      return config;
     })();
   }
 
@@ -53,10 +71,44 @@ async function buildAuthorizationUrl({
 }
 
 async function validateIdToken(idToken, nonce) {
-  const client = await getOpenIdClientLib();
-  const config = await getOidcConfig();
+  const decoded = jwt.decode(idToken, { complete: true });
+  if (!decoded?.header?.kid) {
+    throw new Error('Invalid ID token header');
+  }
 
-  const claims = await client.getValidatedIdTokenClaims(config, idToken, nonce ? { expectedNonce: nonce } : undefined);
+  const jwksUri = `${envConfig.SSO_SERVER.replace(/\/+$/, '')}/.well-known/jwks.json`;
+  const cached = jwksCache.get(jwksUri);
+  let jwks = cached?.expiresAt > Date.now() ? cached.value : null;
+
+  if (!jwks) {
+    const response = await axios.get(jwksUri, { timeout: 5000 });
+    jwks = response.data?.keys;
+    if (!Array.isArray(jwks) || jwks.length === 0) {
+      throw new Error('JWKS response has no signing keys');
+    }
+
+    jwksCache.set(jwksUri, {
+      value: jwks,
+      expiresAt: Date.now() + 5 * 60 * 1000,
+    });
+  }
+
+  const jwk = jwks.find((k) => k.kid === decoded.header.kid && k.kty === 'RSA');
+  if (!jwk) {
+    throw new Error(`No matching JWK found for kid=${decoded.header.kid}`);
+  }
+
+  const publicKey = crypto.createPublicKey({ key: jwk, format: 'jwk' });
+  const claims = jwt.verify(idToken, publicKey, {
+    algorithms: ['RS256'],
+    issuer: envConfig.SSO_SERVER,
+    audience: envConfig.CLIENT_ID,
+  });
+
+  if (nonce && claims.nonce !== nonce) {
+    throw new Error('ID token nonce mismatch');
+  }
+
   return claims;
 }
 
