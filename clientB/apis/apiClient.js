@@ -1,5 +1,5 @@
 const axios = require("axios");
-const envConfig = require("../config");
+const envConfig = require("../configs/config");
 
 function createApiClient(req) {
   const api = axios.create({

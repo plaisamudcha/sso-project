@@ -196,7 +196,7 @@ app.get("/callback", async (req, res) => {
 
 app.get("/profile", ensureUpstreamSession, async (req, res) => {
   if (!req.session.user) {
-    return res.status(401).json({ message: "Unauthorized" });
+    return res.redirect("/");
   }
 
   return res.json(req.session.user);
@@ -211,9 +211,7 @@ app.get("/user-info", ensureUpstreamSession, async (req, res) => {
   } catch (err) {
     const upstream = err.response?.data || err.message;
     console.error("Error fetching user info:", upstream);
-    return res
-      .status(err.response?.status || 500)
-      .json({ message: "Failed to fetch user info", error: upstream });
+    return res.redirect("/");
   }
 });
 

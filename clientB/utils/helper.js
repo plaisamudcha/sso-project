@@ -1,4 +1,4 @@
-const { createApiClient } = require("./services/apiClient");
+const { createApiClient } = require("../apis/apiClient");
 const crypto = require("crypto");
 const axios = require("axios");
 const jwt = require("jsonwebtoken");
