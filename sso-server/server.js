@@ -308,34 +308,29 @@ app.post("/token", tokenLimiter, async (req, res) => {
         );
       }
 
-      const authCode = await AuthCode.findOne({ code });
+      const now = new Date();
+      const authCode = await AuthCode.findOneAndUpdate(
+        {
+          code,
+          clientId: client_id,
+          redirectUri: redirect_uri,
+          expiresAt: { $gte: now },
+          consumedAt: null,
+        },
+        {
+          $set: { consumedAt: now },
+        },
+        {
+          new: true,
+        },
+      );
+
       if (!authCode) {
         return oauthError(
           res,
           400,
           "invalid_grant",
-          "Invalid authorization code",
-        );
-      }
-
-      if (
-        authCode.clientId !== client_id ||
-        authCode.redirectUri !== redirect_uri
-      ) {
-        return oauthError(
-          res,
-          400,
-          "invalid_grant",
-          "Authorization code mismatch",
-        );
-      }
-
-      if (authCode.expiresAt < new Date()) {
-        return oauthError(
-          res,
-          400,
-          "invalid_grant",
-          "Authorization code expired",
+          "Invalid, expired, or already used authorization code",
         );
       }
 
@@ -425,7 +420,7 @@ app.post("/token", tokenLimiter, async (req, res) => {
         });
       }
 
-      await AuthCode.deleteOne({ code });
+      await AuthCode.deleteOne({ _id: authCode._id });
 
       res.set("Cache-Control", "no-store");
       res.set("Pragma", "no-cache");

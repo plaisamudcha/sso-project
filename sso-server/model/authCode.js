@@ -29,6 +29,10 @@ const authCodeSchema = new mongoose.Schema({
     enum: ["S256", null],
     default: null,
   },
+  consumedAt: {
+    type: Date,
+    default: null,
+  },
 });
 
 module.exports = mongoose.model("AuthCode", authCodeSchema);
