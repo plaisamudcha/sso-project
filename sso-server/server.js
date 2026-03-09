@@ -32,6 +32,8 @@ const {
   validateTokenClient,
   createS256CodeChallenge,
   isValidCodeVerifier,
+  buildIdTokenClaims,
+  buildUserInfoClaims,
 } = require("./helper.js");
 const { jwks } = require("./config/oidcKeys.js");
 
@@ -72,7 +74,7 @@ app.set("view engine", "ejs");
 connectDB();
 
 app.post("/register", async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, name, givenName, familyName, picture } = req.body;
 
   const existing = await User.findOne({ email });
   if (existing) {
@@ -84,6 +86,10 @@ app.post("/register", async (req, res) => {
   await User.create({
     email,
     password: hashed,
+    name,
+    givenName,
+    familyName,
+    picture
   });
 
   res.json({ message: "Register successfully" });
@@ -298,7 +304,7 @@ app.post("/login", loginLimiter, async (req, res) => {
   const valid = await bcrypt.compare(password, user.password);
   if (!valid) return res.status(400).json({ message: "Invalid credentials" });
 
-  const code = uuidv4();
+  const code = crypto.randomBytes(32).toString('hex');
 
   const authCode = await AuthCode.create({
     code,
@@ -429,6 +435,11 @@ app.post("/token", tokenLimiter, async (req, res) => {
       const grantedScopes = (authCode.scope || "").split(/\s+/).filter(Boolean);
       const isOidc = grantedScopes.includes("openid");
 
+      const user = await User.findById(authCode.userId).lean();
+      if (!user) {
+        return oauthError(res, 400, "invalid_grant", "User not found");
+      }
+
       const existingSessionId = await redis.get(
         getDeviceSessionKey(deviceType, deviceId),
       );
@@ -441,6 +452,7 @@ app.post("/token", tokenLimiter, async (req, res) => {
       const refreshToken = generateRefreshToken(sessionId);
 
       const sessionData = {
+        sub: user.sub,
         userId: authCode.userId.toString(),
         clientId: authCode.clientId,
         scope: authCode.scope || "",
@@ -463,8 +475,10 @@ app.post("/token", tokenLimiter, async (req, res) => {
       });
 
       const accessToken = generateToken({
-        userId: authCode.userId,
+        iss: envConfig.ISSUER,
+        sub: user.sub,
         sessionId,
+        scope: authCode.scope,
       });
 
       const responsePayload = {
@@ -476,15 +490,22 @@ app.post("/token", tokenLimiter, async (req, res) => {
       };
 
       if (isOidc) {
-        responsePayload.id_token = generateIdToken({
-          iss: envConfig.ISSUER,
-          sub: authCode.userId.toString(),
-          aud: client_id,
-          auth_time: Math.floor(
-            new Date(authCode.authTime || Date.now()).getTime() / 1000,
-          ),
-          ...(authCode.nonce ? { nonce: authCode.nonce } : {}),
-        });
+
+        const scopes = new Set(grantedScopes);
+
+        const idTokenClaims = buildIdTokenClaims(
+          user,
+          scopes,
+          {
+            iss: envConfig.ISSUER,
+            sub: user.sub,
+            aud: client_id,
+            auth_time: Math.floor(new Date(authCode.authTime).getTime() / 1000),
+            ...(authCode.nonce ? { nonce: authCode.nonce } : {}),
+          }
+        )
+
+        responsePayload.id_token = generateIdToken(idTokenClaims);
       }
 
       await AuthCode.deleteOne({ _id: authCode._id });
@@ -546,8 +567,10 @@ app.post("/token", tokenLimiter, async (req, res) => {
 
       const newRefreshToken = generateRefreshToken(payload.sessionId);
       const newAccessToken = generateToken({
-        userId: session.userId,
+        iss: envConfig.ISSUER,
+        sub: session.sub,
         sessionId: payload.sessionId,
+        scope: session.scope,
       });
 
       session.refreshToken = newRefreshToken;
@@ -596,28 +619,31 @@ app.post("/logout", verifySession, async (req, res) => {
 });
 
 app.post("/logout-all", verifySession, async (req, res) => {
-  const sessionIds = await redis.sMembers(`userSessions:${req.user.userId}`);
+  const sessionUserId = req.user.userId || req.user.sessionUserId;
+  const sessionIds = await redis.sMembers(`userSessions:${sessionUserId}`);
 
   for (const id of sessionIds) {
     await removeSessionById(id);
   }
 
-  await redis.del(`userSessions:${req.user.userId}`);
+  await redis.del(`userSessions:${sessionUserId}`);
 
   res.json({ message: "global logout success" });
 });
 
 app.get("/session-info", verifySession, async (req, res) => {
   res.json({
-    userId: req.user.userId,
+    userId: req.user.userId || req.user.sessionUserId || null,
+    sub: req.user.sub,
     sessionId: req.user.sessionId,
     active: true,
   });
 });
 
 app.get("/userinfo", verifySession, async (req, res) => {
+  const sessionUserId = req.user.userId || req.user.sessionUserId;
   const [user, sessionRaw] = await Promise.all([
-    User.findById(req.user.userId).lean(),
+    User.findById(sessionUserId).lean(),
     redis.get(`session:${req.user.sessionId}`),
   ]);
 
@@ -639,8 +665,7 @@ app.get("/userinfo", verifySession, async (req, res) => {
     });
   }
 
-  const claims = { sub: req.user.userId };
-  if (scopes.has("email")) claims.email = user.email;
+  const claims = buildUserInfoClaims(user, scopes);
 
   return res.json(claims);
 });
@@ -667,7 +692,19 @@ app.get("/.well-known/openid-configuration", (_req, res) => {
     id_token_signing_alg_values_supported: ["RS256"],
     scopes_supported: ["openid", "profile", "email"],
     token_endpoint_auth_methods_supported: ["client_secret_post", "none"],
-    claims_supported: ["sub", "email", "auth_time", "iss", "aud", "nonce"],
+    claims_supported: [
+      "sub",
+      "email",
+      "email_verified",
+      "name",
+      "given_name",
+      "family_name",
+      "picture",
+      "auth_time",
+      "iss",
+      "aud",
+      "nonce",
+    ],
   });
 });
 
