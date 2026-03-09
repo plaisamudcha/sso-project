@@ -80,7 +80,7 @@ app.get(
     req.session.oidcNonce = uuidv4();
     next();
   },
-  passport.authenticate("sso", { scope: "openid email" }),
+  passport.authenticate("sso", { scope: "openid email profile" }),
 );
 
 app.get(

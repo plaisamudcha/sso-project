@@ -651,7 +651,6 @@ app.get("/userinfo", verifySession, async (req, res) => {
   }
 
   const claims = { sub: user.sub };
-  if (scopes.has("email")) claims.email = user.email;
 
   if (scopes.has('email')) {
     claims.email = user.email;
