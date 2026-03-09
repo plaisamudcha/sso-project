@@ -4,3 +4,5 @@ variables:
     name: BASE_URL
   - secret: true
     name: token
+  - secret: true
+    name: x-admin-api-key

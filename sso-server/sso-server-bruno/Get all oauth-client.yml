@@ -6,6 +6,9 @@ info:
 http:
   method: GET
   url: "{{BASE_URL}}/oauth-client"
+  headers:
+    - name: x-admin-api-key
+      value: "{{x-admin-api-key}}"
   auth: inherit
 
 settings:

@@ -6,12 +6,15 @@ info:
 http:
   method: POST
   url: "{{BASE_URL}}/register-oauth-client"
+  headers:
+    - name: x-admin-api-key
+      value: "{{x-admin-api-key}}"
   body:
     type: json
     data: |-
       {
-        "name": "clientB",
-        "redirectUris": ["http://localhost:5002/callback"],
+        "name": "clientA",
+        "redirectUris": ["http://localhost:5000/callback"],
         "tokenEndpointAuthMethod": "client_secret_post",
         "allowedScopes": ["openid", "email"],
         "grantTypes": ["authorization_code", "refresh_token"]
