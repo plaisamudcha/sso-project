@@ -207,7 +207,15 @@ app.get("/user-info", ensureUpstreamSession, async (req, res) => {
 
   try {
     const response = await api.get("/userinfo");
-    return res.json(response.data);
+    return res.send(`
+      <p>User Info:</p>
+      <p>User ID: ${response.data?.sub}</p>
+      <p>Email: ${response.data?.email}</p>
+      <p>Name: ${response.data?.name || 'not in scope'}</p>
+      <p>given_name: ${response.data?.given_name || 'not in scope'}</p>
+      <p>family_name: ${response.data?.family_name || 'not in scope'}</p>
+      <p>Picture: ${response.data?.picture ? `<img src="${response.data.picture}" alt="User Picture" width="100"/>` : 'not in scope'}</p>
+      `)
   } catch (err) {
     const upstream = err.response?.data || err.message;
     console.error("Error fetching user info:", upstream);

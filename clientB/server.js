@@ -125,7 +125,15 @@ app.get("/user-info", ensureUpstreamSession, async (req, res) => {
 
   try {
     const response = await api.get("/userinfo");
-    return res.json(response.data);
+    return res.send(`
+      <p>User Info:</p>
+      <p>User ID: ${response.data?.sub}</p>
+      <p>Email: ${response.data?.email}</p>
+      <p>Name: ${response.data?.name}</p>
+      <p>given_name: ${response.data?.given_name}</p>
+      <p>family_name: ${response.data?.family_name}</p>
+      <p>Picture: <img src="${response.data?.picture}" alt="User Picture" width="100"/></p>
+      `)
   } catch (err) {
     const upstream = err.response?.data || err.message;
     console.error("Error fetching user info:", upstream);
