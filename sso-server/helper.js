@@ -128,6 +128,26 @@ function createS256CodeChallenge(verifier) {
   return base64url(crypto.createHash("sha256").update(verifier).digest());
 }
 
+function buildIdTokenClaims(user, scopes, baseClaims) {
+  const claims = {
+    ...baseClaims,
+  }
+
+  if (scopes.has('email')) {
+    claims.email = user.email
+    claims.email_verified = user.emailVerified
+  }
+
+  if (scopes.has('profile')) {
+    claims.name = user.name
+    claims.given_name = user.givenName
+    claims.family_name = user.familyName
+    claims.picture = user.picture
+  }
+
+  return claims;
+}
+
 module.exports = {
   getDeviceSessionKey,
   removeSessionById,
@@ -136,4 +156,5 @@ module.exports = {
   base64url,
   isValidCodeVerifier,
   createS256CodeChallenge,
+  buildIdTokenClaims,
 };

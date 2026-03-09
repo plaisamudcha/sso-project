@@ -32,6 +32,7 @@ const {
   validateTokenClient,
   createS256CodeChallenge,
   isValidCodeVerifier,
+  buildIdTokenClaims,
 } = require("./helper.js");
 const { jwks } = require("./config/oidcKeys.js");
 
@@ -462,9 +463,12 @@ app.post("/token", tokenLimiter, async (req, res) => {
         EX: SESSION_TTL_SECONDS,
       });
 
+      const user = await User.findById(authCode.userId).lean();
+
       const accessToken = generateToken({
-        userId: authCode.userId,
+        sub: user.sub,
         sessionId,
+        scope: authCode.scope,
       });
 
       const responsePayload = {
@@ -476,15 +480,22 @@ app.post("/token", tokenLimiter, async (req, res) => {
       };
 
       if (isOidc) {
-        responsePayload.id_token = generateIdToken({
-          iss: envConfig.ISSUER,
-          sub: authCode.userId.toString(),
-          aud: client_id,
-          auth_time: Math.floor(
-            new Date(authCode.authTime || Date.now()).getTime() / 1000,
-          ),
-          ...(authCode.nonce ? { nonce: authCode.nonce } : {}),
-        });
+
+        const scopes = new Set(grantedScopes);
+
+        const idTokenClaims = buildIdTokenClaims(
+          user,
+          scopes,
+          {
+            iss: envConfig.ISSUER,
+            sub: user.sub,
+            aud: client_id,
+            auth_time: Math.floor(new Date(authCode.authTime).getTime() / 1000),
+            ...(authCode.nonce ? { nonce: authCode.nonce } : {}),
+          }
+        )
+
+        responsePayload.id_token = generateIdToken(idTokenClaims);
       }
 
       await AuthCode.deleteOne({ _id: authCode._id });
@@ -639,8 +650,20 @@ app.get("/userinfo", verifySession, async (req, res) => {
     });
   }
 
-  const claims = { sub: req.user.userId };
+  const claims = { sub: user.sub };
   if (scopes.has("email")) claims.email = user.email;
+
+  if (scopes.has('email')) {
+    claims.email = user.email;
+    claims.email_verified = user.emailVerified;
+  }
+
+  if (scopes.has('profile')) {
+    claims.name = user.name
+    claims.given_name = user.givenName
+    claims.family_name = user.familyName
+    claims.picture = user.picture
+  }
 
   return res.json(claims);
 });
