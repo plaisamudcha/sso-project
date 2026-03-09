@@ -26,17 +26,25 @@ async function verifySession(req, res, next) {
     const token = authHeader.split(" ")[1];
     const payload = verifyToken(token);
 
-    const sessionCount = await redis.sCard(`userSessions:${payload.userId}`);
-    if (sessionCount === 0) {
-      return res.status(401).json({ message: "User not found" });
-    }
-
     const sessionRaw = await redis.get(`session:${payload.sessionId}`);
     if (!sessionRaw) {
       return res.status(401).json({ message: "Session not found" });
     }
 
-    req.user = payload;
+    const session = JSON.parse(sessionRaw);
+    const sessionUserId = session.userId;
+
+    const sessionCount = await redis.sCard(`userSessions:${sessionUserId}`);
+    if (sessionCount === 0) {
+      return res.status(401).json({ message: "User not found" });
+    }
+
+    req.user = {
+      ...payload,
+      userId: payload.userId || sessionUserId,
+      sessionUserId,
+      sub: payload.sub || session.sub,
+    };
     next();
   } catch (err) {
     return res.status(401).json({ message: "Unauthorized" });

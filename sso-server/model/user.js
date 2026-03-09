@@ -1,11 +1,11 @@
 const mongoose = require("mongoose");
-const crypto = require('crypto');
+const crypto = require("crypto");
 
 const userSchema = new mongoose.Schema({
   sub: {
     type: String,
     unique: true,
-    default: crypto.randomUUID(),
+    default: () => crypto.randomUUID(),
   },
 
   email: {
@@ -38,7 +38,7 @@ const userSchema = new mongoose.Schema({
 
   loginAttempts: {
     type: Number,
-    default: 0
+    default: 0,
   },
 
   lockUntil: Date,
@@ -46,8 +46,10 @@ const userSchema = new mongoose.Schema({
   lastLoginAt: Date,
 
   passwordChangedAt: Date,
-}, {
-  timestamps: true,
-});
+},
+  {
+    timestamps: true,
+  },
+);
 
 module.exports = mongoose.model("User", userSchema);

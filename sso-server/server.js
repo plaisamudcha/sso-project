@@ -33,6 +33,7 @@ const {
   createS256CodeChallenge,
   isValidCodeVerifier,
   buildIdTokenClaims,
+  buildUserInfoClaims,
 } = require("./helper.js");
 const { jwks } = require("./config/oidcKeys.js");
 
@@ -73,7 +74,7 @@ app.set("view engine", "ejs");
 connectDB();
 
 app.post("/register", async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, name, givenName, familyName, picture } = req.body;
 
   const existing = await User.findOne({ email });
   if (existing) {
@@ -85,6 +86,10 @@ app.post("/register", async (req, res) => {
   await User.create({
     email,
     password: hashed,
+    name,
+    givenName,
+    familyName,
+    picture
   });
 
   res.json({ message: "Register successfully" });
@@ -614,28 +619,31 @@ app.post("/logout", verifySession, async (req, res) => {
 });
 
 app.post("/logout-all", verifySession, async (req, res) => {
-  const sessionIds = await redis.sMembers(`userSessions:${req.user.userId}`);
+  const sessionUserId = req.user.userId || req.user.sessionUserId;
+  const sessionIds = await redis.sMembers(`userSessions:${sessionUserId}`);
 
   for (const id of sessionIds) {
     await removeSessionById(id);
   }
 
-  await redis.del(`userSessions:${req.user.userId}`);
+  await redis.del(`userSessions:${sessionUserId}`);
 
   res.json({ message: "global logout success" });
 });
 
 app.get("/session-info", verifySession, async (req, res) => {
   res.json({
-    userId: req.user.userId,
+    userId: req.user.userId || req.user.sessionUserId || null,
+    sub: req.user.sub,
     sessionId: req.user.sessionId,
     active: true,
   });
 });
 
 app.get("/userinfo", verifySession, async (req, res) => {
+  const sessionUserId = req.user.userId || req.user.sessionUserId;
   const [user, sessionRaw] = await Promise.all([
-    User.findById(req.user.userId).lean(),
+    User.findById(sessionUserId).lean(),
     redis.get(`session:${req.user.sessionId}`),
   ]);
 
@@ -684,7 +692,19 @@ app.get("/.well-known/openid-configuration", (_req, res) => {
     id_token_signing_alg_values_supported: ["RS256"],
     scopes_supported: ["openid", "profile", "email"],
     token_endpoint_auth_methods_supported: ["client_secret_post", "none"],
-    claims_supported: ["sub", "email", "auth_time", "iss", "aud", "nonce"],
+    claims_supported: [
+      "sub",
+      "email",
+      "email_verified",
+      "name",
+      "given_name",
+      "family_name",
+      "picture",
+      "auth_time",
+      "iss",
+      "aud",
+      "nonce",
+    ],
   });
 });
 
