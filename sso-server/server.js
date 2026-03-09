@@ -299,7 +299,7 @@ app.post("/login", loginLimiter, async (req, res) => {
   const valid = await bcrypt.compare(password, user.password);
   if (!valid) return res.status(400).json({ message: "Invalid credentials" });
 
-  const code = uuidv4();
+  const code = crypto.randomBytes(32).toString('hex');
 
   const authCode = await AuthCode.create({
     code,
@@ -430,6 +430,11 @@ app.post("/token", tokenLimiter, async (req, res) => {
       const grantedScopes = (authCode.scope || "").split(/\s+/).filter(Boolean);
       const isOidc = grantedScopes.includes("openid");
 
+      const user = await User.findById(authCode.userId).lean();
+      if (!user) {
+        return oauthError(res, 400, "invalid_grant", "User not found");
+      }
+
       const existingSessionId = await redis.get(
         getDeviceSessionKey(deviceType, deviceId),
       );
@@ -442,6 +447,7 @@ app.post("/token", tokenLimiter, async (req, res) => {
       const refreshToken = generateRefreshToken(sessionId);
 
       const sessionData = {
+        sub: user.sub,
         userId: authCode.userId.toString(),
         clientId: authCode.clientId,
         scope: authCode.scope || "",
@@ -463,9 +469,8 @@ app.post("/token", tokenLimiter, async (req, res) => {
         EX: SESSION_TTL_SECONDS,
       });
 
-      const user = await User.findById(authCode.userId).lean();
-
       const accessToken = generateToken({
+        iss: envConfig.ISSUER,
         sub: user.sub,
         sessionId,
         scope: authCode.scope,
@@ -557,8 +562,10 @@ app.post("/token", tokenLimiter, async (req, res) => {
 
       const newRefreshToken = generateRefreshToken(payload.sessionId);
       const newAccessToken = generateToken({
-        userId: session.userId,
+        iss: envConfig.ISSUER,
+        sub: session.sub,
         sessionId: payload.sessionId,
+        scope: session.scope,
       });
 
       session.refreshToken = newRefreshToken;
@@ -650,19 +657,7 @@ app.get("/userinfo", verifySession, async (req, res) => {
     });
   }
 
-  const claims = { sub: user.sub };
-
-  if (scopes.has('email')) {
-    claims.email = user.email;
-    claims.email_verified = user.emailVerified;
-  }
-
-  if (scopes.has('profile')) {
-    claims.name = user.name
-    claims.given_name = user.givenName
-    claims.family_name = user.familyName
-    claims.picture = user.picture
-  }
+  const claims = buildUserInfoClaims(user, scopes);
 
   return res.json(claims);
 });

@@ -148,6 +148,26 @@ function buildIdTokenClaims(user, scopes, baseClaims) {
   return claims;
 }
 
+function buildUserInfoClaims(user, scopes) {
+  const claims = {
+    sub: user.sub,
+  }
+
+  if (scopes.has('email')) {
+    claims.email = user.email
+    claims.email_verified = user.emailVerified
+  }
+
+  if (scopes.has('profile')) {
+    if (user.name) claims.name = user.name
+    if (user.givenName) claims.given_name = user.givenName
+    if (user.familyName) claims.family_name = user.familyName
+    if (user.picture) claims.picture = user.picture
+  }
+
+  return claims
+}
+
 module.exports = {
   getDeviceSessionKey,
   removeSessionById,
@@ -157,4 +177,5 @@ module.exports = {
   isValidCodeVerifier,
   createS256CodeChallenge,
   buildIdTokenClaims,
+  buildUserInfoClaims
 };
