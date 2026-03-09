@@ -79,6 +79,14 @@ function loadClientConfig(clientDirName) {
   };
 }
 
+function loadSsoServerEnv() {
+  const envPath = path.join(ROOT_DIR, "sso-server", ".env");
+  if (!fs.existsSync(envPath)) {
+    return {};
+  }
+  return parseEnvFile(envPath);
+}
+
 class CookieJar {
   constructor() {
     this.cookies = {};
@@ -229,9 +237,17 @@ async function loginWithRetry({
 }
 
 async function registerUser(ssoServer, email, password) {
+  const baseName = email.split("@")[0];
   const response = await httpRequest(`${ssoServer}/register`, {
     method: "POST",
-    json: { email, password },
+    json: {
+      email,
+      password,
+      name: `${baseName} TestUser`,
+      givenName: "Test",
+      familyName: "User",
+      picture: "https://example.com/avatar.png",
+    },
   });
 
   if (response.status === 200) return;
@@ -241,14 +257,34 @@ async function registerUser(ssoServer, email, password) {
   )
     return;
 
+  const rawPayload = JSON.stringify(response.data || response.text);
+  if (
+    response.status === 500 &&
+    /sub_1 dup key: \{ sub: null \}|duplicate key error.*sub_1/i.test(
+      rawPayload,
+    )
+  ) {
+    throw new Error(
+      "register failed due to duplicate `sub:null` on server DB/index. Restart sso-server with latest User schema and run `node sso-server/scripts/backfill-user-fields.js`, then rerun smoke_test.",
+    );
+  }
+
   throw new Error(
-    `register failed (status ${response.status}) ${JSON.stringify(response.data || response.text)}`,
+    `register failed (status ${response.status}) ${rawPayload}`,
   );
 }
 
 async function runFlow(config) {
-  const { label, ssoServer, clientId, clientSecret, redirectUri, oidc } =
-    config;
+  const {
+    label,
+    ssoServer,
+    clientId,
+    clientSecret,
+    redirectUri,
+    oidc,
+    tokenEndpointAuthMethod,
+    grantTypes,
+  } = config;
 
   const jar = new CookieJar();
   const flowSourceIp = randomTestIp();
@@ -327,7 +363,9 @@ async function runFlow(config) {
       grant_type: "authorization_code",
       code,
       client_id: clientId,
-      client_secret: clientSecret,
+      ...(tokenEndpointAuthMethod === "client_secret_post"
+        ? { client_secret: clientSecret }
+        : {}),
       redirect_uri: redirectUri,
       deviceId: `smoke-${crypto.randomUUID()}`,
       deviceType: "browser",
@@ -389,26 +427,41 @@ async function runFlow(config) {
     }
   }
 
+  let refreshedAccessToken = accessToken;
+  const shouldExpectRefreshSuccess =
+    grantTypes.includes("refresh_token") &&
+    tokenEndpointAuthMethod === "client_secret_post";
+
   const refreshRes = await httpRequest(`${ssoServer}/token`, {
     method: "POST",
     json: {
       grant_type: "refresh_token",
       refresh_token: refreshToken,
       client_id: clientId,
-      client_secret: clientSecret,
+      ...(tokenEndpointAuthMethod === "client_secret_post"
+        ? { client_secret: clientSecret }
+        : {}),
     },
   });
 
-  ensureStatus(
-    refreshRes.status,
-    200,
-    `${label}: refresh token exchange failed`,
-    JSON.stringify(refreshRes.data || refreshRes.text),
-  );
+  if (shouldExpectRefreshSuccess) {
+    ensureStatus(
+      refreshRes.status,
+      200,
+      `${label}: refresh token exchange failed`,
+      JSON.stringify(refreshRes.data || refreshRes.text),
+    );
 
-  const refreshedAccessToken = refreshRes.data?.access_token;
-  if (!refreshedAccessToken) {
-    throw new Error(`${label}: refresh response missing access_token`);
+    refreshedAccessToken = refreshRes.data?.access_token;
+    if (!refreshedAccessToken) {
+      throw new Error(`${label}: refresh response missing access_token`);
+    }
+  } else {
+    if (refreshRes.status !== 400) {
+      throw new Error(
+        `${label}: expected refresh to be rejected (400), got ${refreshRes.status}`,
+      );
+    }
   }
 
   const logoutRes = await httpRequest(`${ssoServer}/logout`, {
@@ -434,6 +487,7 @@ async function runFlow(config) {
 async function main() {
   const clientA = loadClientConfig("clientA");
   const clientB = loadClientConfig("clientB");
+  const ssoEnv = loadSsoServerEnv();
 
   const ssoServer =
     process.env.SSO_SERVER || clientA.ssoServer || clientB.ssoServer;
@@ -450,37 +504,88 @@ async function main() {
     );
   }
 
+  const adminApiKey = ssoEnv.ADMIN_API_KEY;
+  if (!adminApiKey) {
+    throw new Error(
+      "sso-server/.env is missing ADMIN_API_KEY. Smoke test requires admin access to read client metadata.",
+    );
+  }
+
+  const clientListRes = await httpRequest(`${ssoServer}/oauth-client`, {
+    headers: {
+      "x-admin-api-key": adminApiKey,
+    },
+  });
+
+  ensureStatus(
+    clientListRes.status,
+    200,
+    "Failed to fetch oauth-client metadata",
+    JSON.stringify(clientListRes.data || clientListRes.text),
+  );
+
+  const byClientId = new Map(
+    (clientListRes.data || []).map((c) => [c.clientId, c]),
+  );
+
+  function enrichClient(base) {
+    const metadata = byClientId.get(base.clientId);
+    if (!metadata) {
+      throw new Error(
+        `Client metadata not found for ${base.name} (clientId=${base.clientId})`,
+      );
+    }
+
+    return {
+      ...base,
+      tokenEndpointAuthMethod:
+        metadata.tokenEndpointAuthMethod || "client_secret_post",
+      grantTypes: Array.isArray(metadata.grantTypes) ? metadata.grantTypes : [],
+    };
+  }
+
+  const clientAConfig = enrichClient(clientA);
+  const clientBConfig = enrichClient(clientB);
+
   const flows = [
     {
       label: "ClientA OAuth Flow",
       ssoServer,
-      clientId: clientA.clientId,
-      clientSecret: clientA.clientSecret,
-      redirectUri: clientA.redirectUri,
+      clientId: clientAConfig.clientId,
+      clientSecret: clientAConfig.clientSecret,
+      redirectUri: clientAConfig.redirectUri,
+      tokenEndpointAuthMethod: clientAConfig.tokenEndpointAuthMethod,
+      grantTypes: clientAConfig.grantTypes,
       oidc: false,
     },
     {
       label: "ClientA OIDC Flow",
       ssoServer,
-      clientId: clientA.clientId,
-      clientSecret: clientA.clientSecret,
-      redirectUri: clientA.redirectUri,
+      clientId: clientAConfig.clientId,
+      clientSecret: clientAConfig.clientSecret,
+      redirectUri: clientAConfig.redirectUri,
+      tokenEndpointAuthMethod: clientAConfig.tokenEndpointAuthMethod,
+      grantTypes: clientAConfig.grantTypes,
       oidc: true,
     },
     {
       label: "ClientB OAuth Flow",
       ssoServer,
-      clientId: clientB.clientId,
-      clientSecret: clientB.clientSecret,
-      redirectUri: clientB.redirectUri,
+      clientId: clientBConfig.clientId,
+      clientSecret: clientBConfig.clientSecret,
+      redirectUri: clientBConfig.redirectUri,
+      tokenEndpointAuthMethod: clientBConfig.tokenEndpointAuthMethod,
+      grantTypes: clientBConfig.grantTypes,
       oidc: false,
     },
     {
       label: "ClientB OIDC Flow",
       ssoServer,
-      clientId: clientB.clientId,
-      clientSecret: clientB.clientSecret,
-      redirectUri: clientB.redirectUri,
+      clientId: clientBConfig.clientId,
+      clientSecret: clientBConfig.clientSecret,
+      redirectUri: clientBConfig.redirectUri,
+      tokenEndpointAuthMethod: clientBConfig.tokenEndpointAuthMethod,
+      grantTypes: clientBConfig.grantTypes,
       oidc: true,
     },
   ];

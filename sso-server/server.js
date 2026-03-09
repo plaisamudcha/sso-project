@@ -76,6 +76,18 @@ connectDB();
 app.post("/register", async (req, res) => {
   const { email, password, name, givenName, familyName, picture } = req.body;
 
+  if (!email || !password) {
+    return res.status(400).json({ message: "Email and password are required" });
+  }
+
+  if (!name || !givenName || !familyName) {
+    return res.status(400).json({ message: "Name, givenName and familyName are required" });
+  }
+
+  if (picture && typeof picture !== "string") {
+    return res.status(400).json({ message: "Picture must be a string URL" });
+  }
+
   const existing = await User.findOne({ email });
   if (existing) {
     return res.status(400).json({ message: "Email already exists" });
@@ -83,16 +95,32 @@ app.post("/register", async (req, res) => {
 
   const hashed = await bcrypt.hash(password, envConfig.SALT_ROUNDS);
 
-  await User.create({
-    email,
-    password: hashed,
-    name,
-    givenName,
-    familyName,
-    picture
-  });
+  try {
+    await User.create({
+      sub: crypto.randomUUID(),
+      email,
+      password: hashed,
+      name,
+      givenName,
+      familyName,
+      picture,
+    });
 
-  res.json({ message: "Register successfully" });
+    return res.json({ message: "Register successfully" });
+  } catch (err) {
+    // Keep response deterministic for duplicate writes from retries/concurrency.
+    if (err?.code === 11000 && err?.keyPattern?.email) {
+      return res.status(400).json({ message: "Email already exists" });
+    }
+
+    if (err?.code === 11000 && err?.keyPattern?.sub) {
+      return res.status(500).json({
+        message: "Failed to generate unique user subject (sub)",
+      });
+    }
+
+    return res.status(500).json({ message: "Register failed" });
+  }
 });
 
 app.post("/register-oauth-client", requireAdmin, async (req, res) => {
