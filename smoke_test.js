@@ -487,10 +487,14 @@ async function runFlow(config) {
 async function main() {
   const clientA = loadClientConfig("clientA");
   const clientB = loadClientConfig("clientB");
+  const clientC = loadClientConfig("clientC");
   const ssoEnv = loadSsoServerEnv();
 
   const ssoServer =
-    process.env.SSO_SERVER || clientA.ssoServer || clientB.ssoServer;
+    process.env.SSO_SERVER ||
+    clientA.ssoServer ||
+    clientB.ssoServer ||
+    clientC.ssoServer;
   if (!ssoServer) {
     throw new Error("Cannot determine SSO_SERVER.");
   }
@@ -546,6 +550,7 @@ async function main() {
 
   const clientAConfig = enrichClient(clientA);
   const clientBConfig = enrichClient(clientB);
+  const clientCConfig = enrichClient(clientC);
 
   const flows = [
     {
@@ -586,6 +591,26 @@ async function main() {
       redirectUri: clientBConfig.redirectUri,
       tokenEndpointAuthMethod: clientBConfig.tokenEndpointAuthMethod,
       grantTypes: clientBConfig.grantTypes,
+      oidc: true,
+    },
+    {
+      label: "ClientC OAuth Flow",
+      ssoServer,
+      clientId: clientCConfig.clientId,
+      clientSecret: clientCConfig.clientSecret,
+      redirectUri: clientCConfig.redirectUri,
+      tokenEndpointAuthMethod: clientCConfig.tokenEndpointAuthMethod,
+      grantTypes: clientCConfig.grantTypes,
+      oidc: false,
+    },
+    {
+      label: "ClientC OIDC Flow",
+      ssoServer,
+      clientId: clientCConfig.clientId,
+      clientSecret: clientCConfig.clientSecret,
+      redirectUri: clientCConfig.redirectUri,
+      tokenEndpointAuthMethod: clientCConfig.tokenEndpointAuthMethod,
+      grantTypes: clientCConfig.grantTypes,
       oidc: true,
     },
   ];

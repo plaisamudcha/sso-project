@@ -6,6 +6,8 @@ This smoke test validates all critical SSO flows against `sso-server`:
 - ClientA OIDC flow (`openid email`)
 - ClientB OAuth flow (no `openid`)
 - ClientB OIDC flow (`openid email`)
+- ClientC OAuth flow (no `openid`)
+- ClientC OIDC flow (`openid email`)
 - Token refresh and logout behavior
 - `/userinfo` scope behavior differences
 
@@ -13,9 +15,9 @@ This smoke test validates all critical SSO flows against `sso-server`:
 
 1. `sso-server` is running on `SSO_SERVER` from `clientA/.env` (default: `http://localhost:4000`)
 2. MongoDB and Redis are available
-3. `clientA/.env` and `clientB/.env` contain valid `CLIENT_ID` and `CLIENT_SECRET`
+3. `clientA/.env`, `clientB/.env`, and `clientC/.env` contain valid `CLIENT_ID` and `CLIENT_SECRET`
 
-You do not need to run clientA/clientB servers for this script.
+You do not need to run clientA/clientB/clientC servers for this script.
 
 ## Run
 

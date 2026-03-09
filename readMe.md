@@ -101,6 +101,7 @@
 cd sso-server && npm install
 cd ../clientA && npm install
 cd ../clientB && npm install
+cd ../clientC && npm install
 ```
 
 ## 3. Configure environment variables
@@ -153,14 +154,28 @@ REDIS_URL=redis://localhost:6379
 PORT=5002
 ```
 
+### `clientC/.env`
+
+```env
+NODE_ENV=development
+APP_SESSION_SECRET=replace-me
+CLIENT_ID=replace-after-register-client
+CLIENT_SECRET=replace-after-register-client
+SSO_SERVER=http://localhost:4000
+REDIRECT_URI=http://localhost:5003/callback
+REDIS_URL=redis://localhost:6379
+PORT=5003
+```
+
 ## 4. Start services
 
-เปิด 3 terminals แล้วรัน:
+เปิด 4 terminals แล้วรัน:
 
 ```bash
 cd sso-server && npm run dev
 cd clientA && npm run dev
 cd clientB && npm run dev
+cd clientC && npm run dev
 ```
 
 ## 5. Register OAuth clients
@@ -197,6 +212,21 @@ curl -X POST http://localhost:4000/register-oauth-client \
 	}'
 ```
 
+ตัวอย่างสำหรับ ClientC:
+
+```bash
+curl -X POST http://localhost:4000/register-oauth-client \
+	-H "Content-Type: application/json" \
+	-H "x-admin-api-key: <ADMIN_API_KEY>" \
+	-d '{
+		"name": "clientC",
+		"redirectUris": ["http://localhost:5003/callback"],
+		"tokenEndpointAuthMethod": "client_secret_post",
+		"allowedScopes": ["openid", "email", "profile"],
+		"grantTypes": ["authorization_code", "refresh_token"]
+	}'
+```
+
 นำ `client_id` และ `client_secret` ที่ได้ไปใส่ใน `.env` ของแต่ละ client
 
 ## 6. Register user สำหรับทดสอบ
@@ -225,7 +255,7 @@ curl -X POST http://localhost:4000/register \
 
 ## Smoke Test
 
-ใช้สคริปต์ `smoke_test.js` ตรวจ flow สำคัญของทั้ง ClientA/ClientB
+ใช้สคริปต์ `smoke_test.js` ตรวจ flow สำคัญของ ClientA/ClientB/ClientC
 
 ```bash
 node smoke_test.js
