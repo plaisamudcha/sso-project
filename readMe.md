@@ -46,6 +46,13 @@
 - เก็บ user/token ใน passport session
 - auto refresh token และ re-sync session กับ SSO
 
+### 4) ClientC (`clientC`)
+
+- `/login` = OIDC login ผ่าน `openid-client`
+- แลก code ผ่าน `openid-client` + PKCE
+- เก็บ user/token ใน `express-session`
+- auto refresh token และ re-sync session กับ SSO
+
 ## Data Model และ Redis Keys
 
 ### Redis (SSO)
