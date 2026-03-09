@@ -12,11 +12,10 @@ const { v4: uuidv4 } = require("uuid");
 const envConfig = require("./config");
 const { createApiClient } = require("./services/apiClient");
 const {
-  base64Url,
-  createPkcePair,
   preparePkce,
   destroyLocalSession,
   ensureUpstreamSession,
+  verifyIdToken,
 } = require("./helper");
 
 class DeviceAwareOAuth2Strategy extends OAuth2Strategy {
@@ -109,24 +108,47 @@ passport.use(
       clientSecret: envConfig.CLIENT_SECRET,
       callbackURL: envConfig.REDIRECT_URI,
       state: true,
+      passReqToCallback: true,
     },
-    (accessToken, refreshToken, params, _profile, done) => {
-      console.log("token params:", params);
+    async (req, accessToken, refreshToken, params, _profile, done) => {
+      try {
+        console.log("token params:", params);
 
-      if (params.id_token) {
-        console.log("Decoded ID Token:", jwt.decode(params.id_token));
-      } else {
-        console.warn("No ID Token received in token response");
+        const expectedNonce = req.session.oidcNonce || null;
+        const expectsOidc = Boolean(expectedNonce);
+
+        if (expectsOidc && !params.id_token) {
+          return done(null, false, { message: "Missing id_token" });
+        }
+
+        let idTokenClaims = null;
+        if (params.id_token) {
+          idTokenClaims = await verifyIdToken(params.id_token, {
+            issuer: envConfig.SSO_SERVER,
+            audience: envConfig.CLIENT_ID,
+            nonce: expectedNonce,
+          });
+          console.log("verified id_token claims:", idTokenClaims);
+        }
+
+        const payload = jwt.decode(accessToken) || {};
+
+        // PKCE/nonce are one-time values per auth attempt.
+        delete req.session.pkceVerifier;
+        delete req.session.pkceChallenge;
+        delete req.session.oidcNonce;
+
+        return done(null, {
+          userId: payload.userId,
+          sessionId: payload.sessionId,
+          accessToken,
+          refreshToken,
+          idToken: params.id_token,
+          idTokenClaims,
+        });
+      } catch (err) {
+        return done(err);
       }
-
-      const payload = jwt.decode(accessToken) || {};
-      return done(null, {
-        userId: payload.userId,
-        sessionId: payload.sessionId,
-        accessToken,
-        refreshToken,
-        idToken: params.id_token,
-      });
     },
   ),
 );

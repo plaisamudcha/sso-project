@@ -9,7 +9,7 @@ const { v4: uuidv4 } = require("uuid");
 // Utilities
 const { createApiClient } = require("./services/apiClient");
 const { envConfig } = require("./config");
-const { createPkcePair, parseJwt } = require("./helper");
+const { createPkcePair, parseJwt, verifyIdToken } = require("./helper");
 
 async function ensureUpstreamSession(req, res, next) {
   if (!req.session.user?.accessToken) {
@@ -127,6 +127,8 @@ app.get("/login-oidc", (req, res) => {
 
 app.get("/callback", async (req, res) => {
   const { code, state } = req.query;
+  const expectedNonce = req.session.oauthNonce || null;
+  const expectsOidc = Boolean(expectedNonce);
 
   if (!code || !state) {
     return res.status(400).send("Invalid callback parameters");
@@ -152,10 +154,17 @@ app.get("/callback", async (req, res) => {
 
     console.log("Token response:", tokenResponse.data);
 
+    if (expectsOidc && !tokenResponse.data.id_token) {
+      throw new Error("Missing id_token for OIDC login");
+    }
+
     if (tokenResponse.data.id_token) {
-      console.log("decode id_token:", parseJwt(tokenResponse.data.id_token));
-    } else {
-      console.warn("No id_token received in token response");
+      const idTokenClaims = await verifyIdToken(tokenResponse.data.id_token, {
+        issuer: envConfig.SSO_SERVER,
+        audience: envConfig.CLIENT_ID,
+        nonce: expectedNonce,
+      });
+      console.log("verified id_token claims:", idTokenClaims);
     }
 
     const { access_token, refresh_token, token_type, expires_in } =
