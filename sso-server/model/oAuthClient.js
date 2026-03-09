@@ -8,7 +8,10 @@ const OAuthClientSchema = new mongoose.Schema({
   },
   clientSecret: {
     type: String,
-    required: true,
+    required() {
+      return this.tokenEndpointAuthMethod === "client_secret_post";
+    },
+    default: null,
   },
   name: String,
   redirectUris: [String],

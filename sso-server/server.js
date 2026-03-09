@@ -90,10 +90,26 @@ app.post("/register", async (req, res) => {
 });
 
 app.post("/register-oauth-client", requireAdmin, async (req, res) => {
-  const { name, redirectUris } = req.body;
+  const {
+    name,
+    redirectUris,
+    tokenEndpointAuthMethod = "client_secret_post",
+    allowedScopes,
+    grantTypes,
+  } = req.body;
+
+  const supportedAuthMethods = new Set(["client_secret_post", "none"]);
+  const supportedScopes = new Set(["openid", "profile", "email"]);
+  const supportedGrantTypes = new Set(["authorization_code", "refresh_token"]);
 
   if (!name || !Array.isArray(redirectUris) || redirectUris.length === 0) {
     return res.status(400).json({ message: "Invalid request" });
+  }
+
+  if (!supportedAuthMethods.has(tokenEndpointAuthMethod)) {
+    return res.status(400).json({
+      message: `Unsupported tokenEndpointAuthMethod: ${tokenEndpointAuthMethod}`,
+    });
   }
 
   const normalizedRedirectUris = [
@@ -109,24 +125,65 @@ app.post("/register-oauth-client", requireAdmin, async (req, res) => {
       .json({ message: `Invalid redirect URI: ${invalidUri}` });
   }
 
-  const clientId = crypto.randomUUID();
-  const rawClientSecret = crypto.randomBytes(32).toString("hex");
-  const hashedClientSecret = await bcrypt.hash(
-    rawClientSecret,
-    envConfig.SALT_ROUNDS,
+  const normalizedScopes = Array.isArray(allowedScopes) && allowedScopes.length > 0
+    ? [...new Set(allowedScopes.map((s) => String(s).trim()).filter(Boolean))]
+    : ["openid", "profile", "email"];
+  const invalidScope = normalizedScopes.find((s) => !supportedScopes.has(s));
+  if (invalidScope) {
+    return res.status(400).json({ message: `Unsupported scope: ${invalidScope}` });
+  }
+
+  const normalizedGrantTypes = Array.isArray(grantTypes) && grantTypes.length > 0
+    ? [...new Set(grantTypes.map((g) => String(g).trim()).filter(Boolean))]
+    : ["authorization_code", "refresh_token"];
+  const invalidGrantType = normalizedGrantTypes.find(
+    (g) => !supportedGrantTypes.has(g),
   );
+  if (invalidGrantType) {
+    return res
+      .status(400)
+      .json({ message: `Unsupported grant type: ${invalidGrantType}` });
+  }
+
+  if (!normalizedGrantTypes.includes("authorization_code")) {
+    return res
+      .status(400)
+      .json({ message: "authorization_code grant is required" });
+  }
+
+  const clientId = crypto.randomUUID();
+  let rawClientSecret = null;
+  let hashedClientSecret = null;
+
+  if (tokenEndpointAuthMethod === "client_secret_post") {
+    rawClientSecret = crypto.randomBytes(32).toString("hex");
+    hashedClientSecret = await bcrypt.hash(rawClientSecret, envConfig.SALT_ROUNDS);
+  }
 
   const client = await OAuthClient.create({
     name,
     clientId,
     clientSecret: hashedClientSecret,
     redirectUris: normalizedRedirectUris,
+    tokenEndpointAuthMethod,
+    allowedScopes: normalizedScopes,
+    grantTypes: normalizedGrantTypes,
   });
 
-  res.json({
+  const responsePayload = {
     client_id: client.clientId,
-    client_secret: rawClientSecret, // แสดงครั้งเดียวตอนสร้าง
-  });
+    token_endpoint_auth_method: client.tokenEndpointAuthMethod,
+    redirect_uris: client.redirectUris,
+    allowed_scopes: client.allowedScopes,
+    grant_types: client.grantTypes,
+  };
+
+  if (rawClientSecret) {
+    // Expose client secret exactly once for confidential clients.
+    responsePayload.client_secret = rawClientSecret;
+  }
+
+  return res.json(responsePayload);
 });
 
 app.get("/oauth-client", requireAdmin, async (_req, res) => {

@@ -96,6 +96,17 @@ async function validateTokenClient(clientId, clientSecret) {
     }
   }
 
+  if (client.tokenEndpointAuthMethod === "none" && clientSecret) {
+    return {
+      error: {
+        status: 400,
+        code: "invalid_request",
+        description:
+          "client_secret must not be sent for clients using token_endpoint_auth_method=none",
+      },
+    };
+  }
+
   return { client };
 }
 

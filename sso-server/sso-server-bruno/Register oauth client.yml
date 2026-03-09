@@ -11,7 +11,10 @@ http:
     data: |-
       {
         "name": "clientB",
-        "redirectUris": ["http://localhost:5002/callback"]
+        "redirectUris": ["http://localhost:5002/callback"],
+        "tokenEndpointAuthMethod": "client_secret_post",
+        "allowedScopes": ["openid", "email"],
+        "grantTypes": ["authorization_code", "refresh_token"]
       }
   auth: inherit
 
