@@ -60,9 +60,11 @@ app.get("/", ensureUpstreamSession, (req, res) => {
       `);
   }
 
+  console.log('req.user', req.user)
+
   return res.send(`
     <h1>ClientB</h1>
-    <p>User ID: ${req.user.userId}</p>
+    <p>User ID: ${req.user.idTokenClaims?.sub}</p>
     <p>Session ID: ${req.user.sessionId}</p>
     <a href='/me'>View Profile</a>
     <a href='/user-info'>View User Info</a>

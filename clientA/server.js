@@ -73,8 +73,10 @@ app.get("/", ensureUpstreamSession, (req, res) => {
 
   return res.send(`
     <h1>ClientA</h1>
-    <p>User ID: ${req.session.user.userId}</p>
+    <p>User ID: ${req.session.user.sub}</p>
     <p>Session ID: ${req.session.user.sessionId}</p>
+    <p>Scope: ${req.session.user.scope || "(none)"}</p>
+    <p>Login Type: ${req.session.user.idTokenClaims ? "OIDC" : "OAuth"}</p>
     <a href='/profile'>View Profile</a>
     <a href='/user-info'>View User Info</a>
     <a href='/logout'>Logout this device</a>
@@ -141,6 +143,7 @@ app.get("/callback", async (req, res) => {
   delete req.session.oauthState;
 
   try {
+    let idTokenClaims = null;
     const tokenResponse = await axios.post(`${envConfig.SSO_SERVER}/token`, {
       grant_type: "authorization_code",
       code,
@@ -159,7 +162,7 @@ app.get("/callback", async (req, res) => {
     }
 
     if (tokenResponse.data.id_token) {
-      const idTokenClaims = await verifyIdToken(tokenResponse.data.id_token, {
+      idTokenClaims = await verifyIdToken(tokenResponse.data.id_token, {
         issuer: envConfig.SSO_SERVER,
         audience: envConfig.CLIENT_ID,
         nonce: expectedNonce,
@@ -176,8 +179,10 @@ app.get("/callback", async (req, res) => {
       refreshToken: refresh_token,
       tokenType: token_type,
       expiresIn: expires_in,
-      userId: tokenPayload.userId,
+      sub: tokenPayload.sub,
       sessionId: tokenPayload.sessionId,
+      scope: tokenPayload.scope || "",
+      idTokenClaims,
     };
 
     // PKCE/nonce are one-time values per auth attempt.
@@ -199,7 +204,19 @@ app.get("/profile", ensureUpstreamSession, async (req, res) => {
     return res.redirect("/");
   }
 
-  return res.json(req.session.user);
+  const { sub, sessionId, scope, tokenType, expiresIn, idTokenClaims } =
+    req.session.user;
+
+  return res.send(`
+    <h2>ClientA Profile</h2>
+    <p>sub: ${sub}</p>
+    <p>sessionId: ${sessionId}</p>
+    <p>scope: ${scope || "(none)"}</p>
+    <p>tokenType: ${tokenType}</p>
+    <p>expiresIn: ${expiresIn} seconds</p>
+    <p>oidc: ${idTokenClaims ? "enabled" : "disabled"}</p>
+    <a href='/'>Back</a>
+  `);
 });
 
 app.get("/user-info", ensureUpstreamSession, async (req, res) => {
