@@ -44,7 +44,7 @@ const SUPPORTED_DEVICE_TYPES = new Set(["mobile", "browser"]);
 app.use(express.json());
 app.use(
   cors({
-    origin: ["http://localhost:5000", "http://localhost:5002"],
+    origin: ["http://localhost:5000", "http://localhost:5002", "http://localhost:5003"],
     methods: ["GET", "POST"],
     credentials: true,
   }),

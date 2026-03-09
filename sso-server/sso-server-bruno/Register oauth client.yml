@@ -13,10 +13,10 @@ http:
     type: json
     data: |-
       {
-        "name": "clientA",
-        "redirectUris": ["http://localhost:5000/callback"],
+        "name": "clientC",
+        "redirectUris": ["http://localhost:5003/callback"],
         "tokenEndpointAuthMethod": "client_secret_post",
-        "allowedScopes": ["openid", "email"],
+        "allowedScopes": ["openid", "email", "profile"],
         "grantTypes": ["authorization_code", "refresh_token"]
       }
   auth: inherit
