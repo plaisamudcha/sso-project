@@ -10,7 +10,6 @@ const crypto = require("crypto");
 
 // Models
 const User = require("./model/user.js");
-const AuthCode = require("./model/authCode.js");
 const OAuthClient = require("./model/oAuthClient.js");
 
 // Utilities
@@ -36,10 +35,21 @@ const {
   buildUserInfoClaims,
 } = require("./helper.js");
 const { jwks } = require("./config/oidcKeys.js");
+const { validate, registerSchema } = require("./validation/register.validate.js");
 
 const app = express();
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
+const AUTH_CODE_TTL_SECONDS = 5 * 60;
 const SUPPORTED_DEVICE_TYPES = new Set(["mobile", "browser"]);
+
+const buildAuthCodeRedisKey = (clientId, redirectUri, code) => {
+  const redirectHash = crypto
+    .createHash("sha256")
+    .update(String(redirectUri))
+    .digest("hex");
+
+  return `authcode:${clientId}:${redirectHash}:${code}`;
+};
 
 app.use(express.json());
 app.use(
@@ -73,7 +83,7 @@ app.use(express.urlencoded({ extended: true }));
 app.set("view engine", "ejs");
 connectDB();
 
-app.post("/register", async (req, res) => {
+app.post("/register", validate(registerSchema), async (req, res) => {
   const { email, password, name, givenName, familyName, picture } = req.body;
 
   if (!email || !password) {
@@ -333,23 +343,28 @@ app.post("/login", loginLimiter, async (req, res) => {
   if (!valid) return res.status(400).json({ message: "Invalid credentials" });
 
   const code = crypto.randomBytes(32).toString('hex');
+  const authCodeKey = buildAuthCodeRedisKey(client_id, redirect_uri, code);
 
-  const authCode = await AuthCode.create({
+  const authCodeData = {
     code,
-    userId: user._id,
+    userId: user._id.toString(),
     clientId: client_id,
     redirectUri: redirect_uri,
     codeChallenge: code_challenge || null,
     codeChallengeMethod: code_challenge_method || null,
-    expiresAt: new Date(Date.now() + 5 * 60 * 1000),
 
     // OIDC context
     scope: scope || "",
     nonce: nonce || null,
-    authTime: new Date(),
+    authTime: new Date().toISOString(),
+  };
+
+  await redis.set(authCodeKey, JSON.stringify(authCodeData), {
+    EX: AUTH_CODE_TTL_SECONDS,
+    NX: true,
   });
 
-  console.log("create auth code", authCode);
+  console.log("create auth code", authCodeData);
 
   delete req.session.oauth;
 
@@ -409,22 +424,12 @@ app.post("/token", tokenLimiter, async (req, res) => {
         );
       }
 
-      const now = new Date();
-      const authCode = await AuthCode.findOneAndUpdate(
-        {
-          code,
-          clientId: client_id,
-          redirectUri: redirect_uri,
-          expiresAt: { $gte: now },
-          consumedAt: null,
-        },
-        {
-          $set: { consumedAt: now },
-        },
-        {
-          new: true,
-        },
-      );
+      const authCodeKey = buildAuthCodeRedisKey(client_id, redirect_uri, code);
+      const authCodeRaw = typeof redis.getDel === "function"
+        ? await redis.getDel(authCodeKey)
+        : await redis.sendCommand(["GETDEL", authCodeKey]);
+
+      const authCode = authCodeRaw ? JSON.parse(authCodeRaw) : null;
 
       if (!authCode) {
         return oauthError(
@@ -481,7 +486,7 @@ app.post("/token", tokenLimiter, async (req, res) => {
 
       const sessionData = {
         sub: user.sub,
-        userId: authCode.userId.toString(),
+        userId: authCode.userId,
         clientId: authCode.clientId,
         scope: authCode.scope || "",
         nonce: authCode.nonce || null,
@@ -535,8 +540,6 @@ app.post("/token", tokenLimiter, async (req, res) => {
 
         responsePayload.id_token = generateIdToken(idTokenClaims);
       }
-
-      await AuthCode.deleteOne({ _id: authCode._id });
 
       res.set("Cache-Control", "no-store");
       res.set("Pragma", "no-cache");
@@ -625,6 +628,9 @@ app.post("/token", tokenLimiter, async (req, res) => {
 
       res.set("Cache-Control", "no-store");
       res.set("Pragma", "no-cache");
+      // send accesstoken to bluechart
+      // bluechart will validate access token by calling sso /validate-token endpoint
+      // if valid, bluechart will allow user to access protected resource
       return res.json(responsePayload);
     }
 
@@ -739,6 +745,12 @@ app.get("/.well-known/openid-configuration", (_req, res) => {
 app.get("/.well-known/jwks.json", (_req, res) => {
   res.json(jwks);
 });
+
+app.get('/validate-token', () => {
+  //flow 
+  //1. client send request with access token
+  //2. 
+})
 
 app.listen(envConfig.PORT, () => {
   console.log(`Server is running on port http://localhost:${envConfig.PORT}`);
