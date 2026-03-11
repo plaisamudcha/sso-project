@@ -62,7 +62,10 @@ async function validateTokenClient(clientId, clientSecret) {
     };
   }
 
-  if (client.tokenEndpointAuthMethod === "client_secret_post") {
+  const hasClientSecret =
+    typeof client.clientSecret === "string" && client.clientSecret.length > 0;
+
+  if (hasClientSecret) {
     if (!clientSecret) {
       return {
         error: {
@@ -96,13 +99,13 @@ async function validateTokenClient(clientId, clientSecret) {
     }
   }
 
-  if (client.tokenEndpointAuthMethod === "none" && clientSecret) {
+  if (!hasClientSecret && clientSecret) {
     return {
       error: {
         status: 400,
         code: "invalid_request",
         description:
-          "client_secret must not be sent for clients using token_endpoint_auth_method=none",
+          "client_secret must not be sent for public clients",
       },
     };
   }

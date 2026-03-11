@@ -8,9 +8,6 @@ const OAuthClientSchema = new mongoose.Schema({
   },
   clientSecret: {
     type: String,
-    required() {
-      return this.tokenEndpointAuthMethod === "client_secret_post";
-    },
     default: null,
   },
   name: String,
@@ -24,11 +21,6 @@ const OAuthClientSchema = new mongoose.Schema({
   grantTypes: {
     type: [String],
     default: ["authorization_code", "refresh_token"],
-  },
-  tokenEndpointAuthMethod: {
-    type: String,
-    enum: ["client_secret_post", "none"],
-    default: "client_secret_post",
   },
 
   createdAt: {
