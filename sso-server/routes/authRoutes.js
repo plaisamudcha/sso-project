@@ -10,7 +10,6 @@ const {
   logoutAll,
   sessionInfo,
   userInfo,
-  userInfoBackwardCompatibility,
 } = require("../controllers/authController");
 const { verifySession, requireAdmin } = require("../midlleware/auth");
 const { loginLimiter, tokenLimiter } = require("../midlleware/rateLimit");
@@ -27,6 +26,5 @@ router.post("/logout", verifySession, logout);
 router.post("/logout-all", verifySession, logoutAll);
 router.get("/session-info", verifySession, sessionInfo);
 router.get("/userinfo", verifySession, userInfo);
-router.get("/user-info", verifySession, userInfoBackwardCompatibility);
 
 module.exports = router;

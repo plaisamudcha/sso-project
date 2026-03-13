@@ -1,6 +1,5 @@
 // Libraries
 const express = require("express");
-const axios = require("axios");
 const session = require("express-session");
 const { RedisStore } = require("connect-redis");
 const { createClient } = require("redis");
@@ -9,7 +8,8 @@ const { v4: uuidv4 } = require("uuid");
 // Utilities
 const { createApiClient } = require("./services/apiClient");
 const { envConfig } = require("./config");
-const { createPkcePair, parseJwt, verifyIdToken } = require("./helper");
+const { createPkcePair } = require("./helper");
+const passport = require("./configs/passport");
 
 async function ensureUpstreamSession(req, res, next) {
   if (!req.session.user?.accessToken) {
@@ -59,9 +59,12 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use(passport.initialize());
+app.use(passport.session());
+
 app.set("view engine", "ejs");
 
-app.get("/", ensureUpstreamSession, (req, res) => {
+app.get("/", (req, res) => {
   if (!req.session.user) {
     return res.send(`
       <h1>ClientA</h1>
@@ -84,120 +87,47 @@ app.get("/", ensureUpstreamSession, (req, res) => {
     `);
 });
 
-app.get("/login", (req, res) => {
-  const state = uuidv4();
+app.get("/login", (req, res, next) => {
   const { challenge, verifier } = createPkcePair();
-  req.session.oauthState = state;
   req.session.pkceVerifier = verifier;
+  req.session.pkceChallenge = challenge;
+  delete req.session.oauthNonce;
 
-  const params = new URLSearchParams({
-    client_id: envConfig.CLIENT_ID,
-    redirect_uri: envConfig.REDIRECT_URI,
-    response_type: "code",
-    state,
-    code_challenge: challenge,
-    code_challenge_method: "S256",
-  });
-  const url = `${envConfig.SSO_SERVER}/authorize?${params.toString()}`;
   req.session.save(() => {
-    res.redirect(url);
+    passport.authenticate("sso")(req, res, next);
   });
 });
 
-app.get("/login-oidc", (req, res) => {
-  const state = uuidv4();
+app.get("/login-oidc", (req, res, next) => {
   const nonce = uuidv4();
   const { challenge, verifier } = createPkcePair();
-  req.session.oauthState = state;
   req.session.oauthNonce = nonce;
   req.session.pkceVerifier = verifier;
-  const params = new URLSearchParams({
-    client_id: envConfig.CLIENT_ID,
-    redirect_uri: envConfig.REDIRECT_URI,
-    response_type: "code",
-    scope: "openid email",
-    nonce,
-    state,
-    code_challenge: challenge,
-    code_challenge_method: "S256",
-  });
-  const url = `${envConfig.SSO_SERVER}/authorize?${params.toString()}`;
+  req.session.pkceChallenge = challenge;
+
   req.session.save(() => {
-    res.redirect(url);
+    passport.authenticate("sso", { scope: "openid email" })(req, res, next);
   });
 });
 
-app.get("/callback", async (req, res) => {
-  const { code, state } = req.query;
-  const expectedNonce = req.session.oauthNonce || null;
-  const expectsOidc = Boolean(expectedNonce);
+app.get(
+  "/callback",
+  passport.authenticate("sso", {
+    failureRedirect: "/",
+  }),
+  (req, res) => {
+    req.session.user = req.user;
 
-  if (!code || !state) {
-    return res.status(400).send("Invalid callback parameters");
-  }
+    req.session.save((saveErr) => {
+      if (saveErr) {
+        console.error("clientA session save failed:", saveErr.message);
+        return res.status(500).send("login failed");
+      }
 
-  if (!req.session.oauthState || req.session.oauthState !== state) {
-    return res.status(400).send("Invalid OAuth state");
-  }
-
-  delete req.session.oauthState;
-
-  try {
-    let idTokenClaims = null;
-    const tokenResponse = await axios.post(`${envConfig.SSO_SERVER}/token`, {
-      grant_type: "authorization_code",
-      code,
-      client_id: envConfig.CLIENT_ID,
-      client_secret: envConfig.CLIENT_SECRET,
-      redirect_uri: envConfig.REDIRECT_URI,
-      deviceId: req.session.browserId,
-      deviceType: "browser",
-      code_verifier: req.session.pkceVerifier,
+      return res.redirect("/");
     });
-
-    console.log("Token response:", tokenResponse.data);
-
-    if (expectsOidc && !tokenResponse.data.id_token) {
-      throw new Error("Missing id_token for OIDC login");
-    }
-
-    if (tokenResponse.data.id_token) {
-      idTokenClaims = await verifyIdToken(tokenResponse.data.id_token, {
-        issuer: envConfig.SSO_SERVER,
-        audience: envConfig.CLIENT_ID,
-        nonce: expectedNonce,
-      });
-      console.log("verified id_token claims:", idTokenClaims);
-    }
-
-    const { access_token, refresh_token, token_type, expires_in } =
-      tokenResponse.data;
-    const tokenPayload = parseJwt(access_token);
-
-    req.session.user = {
-      accessToken: access_token,
-      refreshToken: refresh_token,
-      tokenType: token_type,
-      expiresIn: expires_in,
-      sub: tokenPayload.sub,
-      sessionId: tokenPayload.sessionId,
-      scope: tokenPayload.scope || "",
-      idTokenClaims,
-    };
-
-    // PKCE/nonce are one-time values per auth attempt.
-    delete req.session.pkceVerifier;
-    delete req.session.oauthNonce;
-
-    res.redirect("/");
-  } catch (err) {
-    console.error(
-      "clientA token exchange failed:",
-      err.response?.data || err.message,
-    );
-    res.status(401).send("login failed");
-  }
-});
+  },
+);
 
 app.get("/profile", ensureUpstreamSession, async (req, res) => {
   if (!req.session.user) {

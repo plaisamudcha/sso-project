@@ -174,11 +174,6 @@ async function userInfo(req, res) {
   }
 }
 
-function userInfoBackwardCompatibility(req, res, next) {
-  req.url = "/userinfo";
-  return next();
-}
-
 module.exports = {
   register,
   registerOAuth,
@@ -190,5 +185,4 @@ module.exports = {
   logoutAll,
   sessionInfo,
   userInfo,
-  userInfoBackwardCompatibility,
 };
